@@ -6,18 +6,6 @@ Version: 0.1
 
 ---
 
-# Purpose
-
-This repository is designed to be developed collaboratively by human engineers and AI coding agents.
-
-The goal of this document is to establish engineering expectations before implementation begins.
-
-AI agents should behave like senior software engineers rather than code generators.
-
-Every change should improve the long-term maintainability, reliability, and clarity of the system.
-
----
-
 # Project Overview
 
 MemoryOps AI is a production-grade memory operating system for AI applications.
