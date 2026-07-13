@@ -1,306 +1,672 @@
-<div align="center">
-
 # MemoryOps AI
 
-### Engineering a Production-Grade Memory System for AI Applications
+### Governed Memory Infrastructure for AI Applications
 
-*A learning-first project that reconstructs a production AI memory platform from first principles, documenting every architectural decision, engineering tradeoff, and implementation milestone.*
+MemoryOps AI is a memory infrastructure layer for AI applications.
 
----
+It governs what becomes memory, how memory is stored and retrieved, which memories may influence future context, how memory evolves, and what happens when information must be forgotten.
 
-![Status](https://img.shields.io/badge/status-Version%200.0-blue)
-![Stage](https://img.shields.io/badge/stage-Repository%20Genesis-green)
-![License](https://img.shields.io/badge/license-MIT-orange)
+Memory is treated as governed persistent state rather than a vector search feature.
 
-</div>
-
----
-
-# Overview
-
-MemoryOps AI is an educational engineering project focused on understanding how modern production AI memory systems are designed, implemented, evaluated, and governed.
-
-Rather than building another chatbot memory feature, this project explores the complete lifecycle of memory inside AI systems:
-
-- What information deserves to become memory?
-- How should memory be extracted?
-- How should it be validated?
-- How should it be stored?
-- How should it be retrieved?
-- How should it decay?
-- How should it be governed?
-- How do we prove that memory actually improves an AI system?
-
-The objective is not only to build software, but to understand the engineering principles behind production-grade AI memory platforms.
+> Current stage: Phase 0 — Design Spine  
+> Current version: `0.1.0`
 
 ---
 
-# Project Philosophy
+## Why MemoryOps AI
 
-This repository follows one simple principle:
+A basic AI memory implementation often looks like this:
 
-> Every important engineering decision should be intentional, documented, and reproducible.
-
-Instead of jumping directly into implementation, the project evolves through engineering milestones.
-
-Each major feature introduces:
-
-- Architectural reasoning
-- Design documentation
-- Architecture Decision Records (ADRs)
-- Implementation
-- Testing
-- Evaluation
-- Reflection
-
-The repository itself becomes a record of how the system evolved.
-
----
-
-# Why This Project Exists
-
-Many AI memory implementations stop at storing embeddings in a vector database.
-
-Production systems require much more than retrieval.
-
-Memory systems must answer questions such as:
-
-- What should become memory?
-- What should never become memory?
-- Who owns memory?
-- How is memory updated?
-- How is memory deleted?
-- How is memory governed?
-- How is memory evaluated?
-- How can every decision be audited?
-
-MemoryOps AI explores these engineering challenges from first principles.
-
----
-
-# Learning Goals
-
-This project is designed to study and implement topics including:
-
-- AI Memory Systems
-- Long-Term Memory Architectures
-- Semantic, Episodic and Procedural Memory
-- Retrieval Pipelines
-- Policy Engines
-- Memory Governance
-- Memory Evaluation
-- AI Observability
-- Human-in-the-Loop Workflows
-- Production AI Engineering
-- AI Infrastructure
-- Agent Engineering
-
----
-
-# Repository Structure
-
+```text
+User Message
+     ↓
+Embedding
+     ↓
+Vector Database
+     ↓
+Similarity Search
 ```
-memoryops-ai/
 
-├── docs/
-│   ├── architecture/
-│   ├── design/
-│   ├── adr/
-│   ├── phase-gates/
-│   ├── research/
-│   ├── integrations/
-│   └── decisions/
+This answers one question:
+
+> How do we find semantically similar information?
+
+A production memory system must answer more:
+
+- What deserves to become memory?
+- What must never be stored?
+- Who owns a memory?
+- Which policy authorized persistence?
+- How should conflicting memory evolve?
+- Which memories are allowed into context?
+- Why did a memory influence an answer?
+- How does forgetting work?
+- How can deletion be verified?
+- How is memory quality evaluated?
+
+MemoryOps AI introduces a governed runtime around the complete memory lifecycle.
+
+---
+
+## System Model
+
+MemoryOps AI separates the memory write path, read path, and governance plane.
+
+### Write Path
+
+```text
+Incoming Information
+        ↓
+      Gateway
+        ↓
+     Extractor
+        ↓
+ Candidate Memory
+        ↓
+   Policy Broker
+        ↓
+    Write Service
+        ↓
+     Repository
+        ↓
+ PostgreSQL + pgvector
+```
+
+The Extractor proposes memory.
+
+The Policy Broker authorizes memory.
+
+The Write Service executes the authorized decision.
+
+The Repository enforces persistence invariants.
+
+The Extractor never has authority to persist memory directly.
+
+### Read Path
+
+```text
+Application Query
+        ↓
+   Scope Filtering
+        ↓
+  Hybrid Retriever
+        ↓
+Deterministic Ranker
+        ↓
+ Context Composer
+        ↓
+  Application Context
+```
+
+Retrieval combines semantic and lexical signals.
+
+Candidate memories are filtered by governance boundaries before ranking.
+
+Only eligible active memory may enter context composition.
+
+### Governance Plane
+
+```text
+Capture
+   ↓
+Store
+   ↓
+Retrieve
+   ↓
+Update
+   ↓
+Forget
+
+Governance wraps every stage.
+```
+
+Every important memory decision should have:
+
+- an authority
+- a reason
+- a lifecycle state
+- governance evidence
+
+---
+
+## Policy Before Storage
+
+Memory extraction is probabilistic.
+
+Persistent state cannot rely on extraction output alone.
+
+Every candidate memory passes through the Policy Broker before storage.
+
+The broker may produce:
+
+| Decision | Meaning |
+|---|---|
+| `SAVE` | Persist as active memory |
+| `PENDING_APPROVAL` | Require human review |
+| `BLOCK` | Reject because of a hard policy |
+| `DROP_LOW_UTILITY` | Do not persist low-value information |
+| `UPDATE_EXISTING` | Update an existing memory |
+| `MERGE_WITH_EXISTING` | Merge related memory |
+
+Hard safety rules are deterministic.
+
+LLM-based reasoning may assist with nuanced judgments, but it cannot override deterministic blocking rules.
+
+```text
+LLM proposes state.
+Policy governs state.
+```
+
+---
+
+## Memory Types
+
+MemoryOps AI initially models three memory types.
+
+### Semantic Memory
+
+Durable facts and information.
+
+```text
+Jacob is an AI Engineer.
+```
+
+### Procedural Memory
+
+Preferences and instructions that influence future behavior.
+
+```text
+Jacob prefers production-grade engineering explanations.
+```
+
+### Episodic Memory
+
+Events, experiences, achievements, and time-bound information.
+
+```text
+Jacob built GIMS during a memory-system hackathon.
+```
+
+Memory type does not bypass governance.
+
+Every memory follows the same policy, lifecycle, audit, and deletion boundaries.
+
+---
+
+## Memory Lifecycle
+
+```text
+Candidate
+    ↓
+Policy Decision
+    │
+    ├── SAVE ───────────────→ active
+    │
+    ├── PENDING_APPROVAL ───→ pending
+    │                              │
+    │                         ┌────┴────┐
+    │                         ↓         ↓
+    │                      active    rejected
+    │
+    ├── BLOCK ──────────────→ audit only
+    │
+    ├── DROP_LOW_UTILITY ───→ audit only
+    │
+    ├── UPDATE_EXISTING ────→ existing active memory
+    │
+    └── MERGE_WITH_EXISTING → existing active memory
+```
+
+Active memory may later be:
+
+```text
+active
+   │
+   ├── updated
+   ├── merged
+   ├── archived
+   └── deleted
+```
+
+Only active memory is eligible for normal retrieval.
+
+Pending, rejected, archived, and deleted memory must not enter normal context composition.
+
+---
+
+## Hybrid Retrieval
+
+Vector similarity alone is insufficient for exact names, identifiers, and phrases.
+
+Keyword retrieval alone cannot reliably identify semantic paraphrases.
+
+MemoryOps AI therefore uses hybrid retrieval.
+
+```text
+Semantic Retrieval
+        +
+Lexical Retrieval
+        ↓
+Candidate Memories
+        ↓
+Governance Filtering
+        ↓
+Deterministic Ranking
+        ↓
+Top-K Memories
+```
+
+The initial ranking model is:
+
+```text
+final_score =
+    0.35 × semantic
+  + 0.20 × keyword
+  + 0.15 × importance
+  + 0.10 × recency
+  + 0.10 × confidence
+  + 0.10 × reinforcement
+```
+
+The ranking model is intentionally deterministic and inspectable.
+
+Every used memory should eventually expose a score breakdown and source memory identifier.
+
+---
+
+## Security Invariants
+
+The following properties are non-negotiable system invariants.
+
+1. **Tenant isolation**  
+   A tenant or user must never retrieve another scope's memory.
+
+2. **Policy before storage**  
+   No candidate memory reaches persistent storage without a Policy Broker decision.
+
+3. **Secret exclusion**  
+   Detected credentials and secrets must never become persistent memory.
+
+4. **Deletion guarantee**  
+   Deleted memory must never influence future AI context.
+
+5. **Pending-memory exclusion**  
+   Pending memory is not retrievable until approved.
+
+6. **Temporary memory bypass**  
+   Temporary interactions bypass persistent memory reads and writes.
+
+7. **Auditability**  
+   Persistent memory lifecycle mutations produce append-only governance evidence.
+
+8. **Explainability**  
+   Memory usage remains traceable to source memory identifiers.
+
+9. **Graceful degradation**  
+   Failure of optional memory retrieval must not automatically fail the host AI application.
+
+A violation of a security invariant is treated as a correctness failure.
+
+---
+
+## Deletion Guarantee
+
+A delete operation performs logical forgetting.
+
+```text
+DELETE memory
+      ↓
+status = deleted
+deleted_at = timestamp
+      ↓
+memory_deleted audit event
+      ↓
+excluded from every governed read path
+```
+
+Deleted memory must not appear in:
+
+- active memory listing
+- semantic candidate retrieval
+- lexical candidate retrieval
+- ranking
+- context composition
+
+The active-memory invariant is enforced at the repository boundary.
+
+The initial architecture guarantees logical forgetting from governed MemoryOps read paths.
+
+It does not claim immediate physical byte erasure.
+
+Physical content and vector compaction are separate lifecycle capabilities planned for a later phase.
+
+---
+
+## Audit and Observability
+
+MemoryOps AI separates governance evidence from operational telemetry.
+
+### Audit Stream
+
+Answers:
+
+> What happened to memory state?
+
+Examples:
+
+```text
+memory_created
+memory_pending_approval
+memory_blocked
+memory_updated
+memory_approved
+memory_rejected
+memory_archived
+memory_deleted
+```
+
+Audit history is append-only.
+
+### Operational Stream
+
+Answers:
+
+> How did the system behave?
+
+Structured events may contain:
+
+```text
+trace_id
+tenant_id
+user_id
+event
+latency_ms
+memory_count
+status
+```
+
+A trace identifier begins at the request gateway and propagates through downstream memory components.
+
+```text
+Gateway
+   ↓ trace_id
+Extractor
+   ↓ trace_id
+Policy Broker
+   ↓ trace_id
+Write Service
+   ↓ trace_id
+Repository
+```
+
+Governance evidence and operational telemetry remain logically separate.
+
+---
+
+## Architecture
+
+```text
+                         AI Application
+                                │
+                                ▼
+                         MemoryOps API
+                                │
+              ┌─────────────────┴─────────────────┐
+              │                                   │
+          WRITE PATH                          READ PATH
+              │                                   │
+          Extractor                           Retriever
+              │                                   │
+       Candidate Memory                          Ranker
+              │                                   │
+        Policy Broker                     Context Composer
+              │                                   │
+        Write Service                             │
+              └─────────────────┬─────────────────┘
+                                │
+                           Repository
+                                │
+                       PostgreSQL + pgvector
+                                │
+                 ┌──────────────┴──────────────┐
+                 │                             │
+            Audit Stream                Operational Logs
+```
+
+Detailed architecture is documented in `docs/architecture/system-overview.md`.
+
+---
+
+## Storage Architecture
+
+PostgreSQL with pgvector is the canonical system of record for long-term memory and governance data.
+
+Storage access occurs through a repository abstraction.
+
+Initial repository implementations:
+
+```text
+Repository Interface
+        │
+        ├── postgres
+        │      └── PostgreSQL + pgvector
+        │
+        └── memory
+               └── in-process storage
+```
+
+The in-memory implementation supports local development and deterministic testing without external infrastructure.
+
+Application services depend on the repository contract rather than a concrete storage backend.
+
+See `infra/adr/ADR-001-storage.md`.
+
+---
+
+## API Surface
+
+The initial HTTP contract defines:
+
+```text
+POST   /api/chat
+
+GET    /api/memories
+GET    /api/memories/{memory_id}
+GET    /api/memories/{memory_id}/provenance
+GET    /api/memories/{memory_id}/audit
+
+PATCH  /api/memories/{memory_id}
+DELETE /api/memories/{memory_id}
+
+GET    /api/audit
+GET    /api/metrics
+
+GET    /healthz
+GET    /readyz
+```
+
+The canonical initial contract is documented in `docs/api-contracts.md`.
+
+The API contract is defined before route implementation.
+
+Changes to endpoint methods, paths, required fields, response semantics, or lifecycle behavior must update the contract.
+
+---
+
+## Repository Layout
+
+```text
+memoryops-ai/
 │
 ├── apps/
-│   ├── web/
-│   └── playground/
+│   ├── web/                     # Governance control plane
+│   └── playground/              # Interactive governed memory demo
 │
 ├── services/
-│   └── api/
+│   ├── api/                     # MemoryOps HTTP runtime
+│   └── worker/                  # Background lifecycle workers
+│
+├── packages/
+│   └── shared/                  # Shared contracts and types
 │
 ├── infra/
-│   ├── docker/
-│   ├── database/
-│   └── deployment/
+│   ├── adr/                     # Architecture Decision Records
+│   └── db/
+│       └── migrations/          # PostgreSQL + pgvector schema
 │
-├── evals/
-├── tests/
-├── scripts/
-├── .github/
-└── .hermes/
+├── evals/                       # Golden and adversarial evaluation cases
+│
+├── docs/
+│   ├── architecture/            # System architecture
+│   ├── design/                  # Product and system blueprints
+│   ├── api-contracts.md
+│   ├── governance.md
+│   ├── rollout.md
+│   └── security.md
+│
+├── AGENTS.md                    # Coding-agent engineering contract
+├── CLAUDE.md                    # Agent context
+├── ROADMAP.md                   # Product evolution
+└── README.md
 ```
 
+Some implementation directories are introduced by later rollout phases.
+
+The repository structure represents the intended system boundary, not a claim that every planned capability is already shipped.
+
 ---
 
-# Engineering Workflow
+## Architecture Decisions
 
-The project follows a documentation-first workflow.
+The initial architecture is defined through five ADRs.
 
-```
-Problem
+| ADR | Decision |
+|---|---|
+| ADR-001 | PostgreSQL + pgvector with repository abstraction |
+| ADR-002 | Hybrid retrieval and deterministic ranking |
+| ADR-003 | Policy Broker before storage |
+| ADR-004 | Separate audit and operational observability streams |
+| ADR-005 | Repository-enforced logical deletion guarantee |
 
-↓
+ADRs live under:
 
-Research
-
-↓
-
-Design
-
-↓
-
-Architecture
-
-↓
-
-ADR
-
-↓
-
-Implementation
-
-↓
-
-Testing
-
-↓
-
-Evaluation
-
-↓
-
-Documentation
-
-↓
-
-Release
+```text
+infra/adr/
 ```
 
-Implementation begins only after the engineering reasoning has been documented.
+Architecture changes should introduce or update an ADR when they alter a load-bearing system decision.
 
 ---
 
-# Development Roadmap
+## Rollout
 
-## Version 0.0 — Repository Genesis
+MemoryOps AI evolves through gated engineering phases.
 
-- Repository structure
-- Engineering foundation
-- Product vision
-- Documentation strategy
+| Phase | Capability | Status |
+|---|---|---|
+| 0 | Design spine | In Progress |
+| 1 | Core write path | Planned |
+| 2 | Read path | Planned |
+| 3 | Governance control plane | Planned |
+| 4 | Production depth and evaluations | Planned |
+| 5 | Background lifecycle intelligence | Planned |
+| 6 | Deletion compaction and vector purge | Planned |
+| 7 | Worker runtime | Planned |
+| 8 | Results and evidence dashboard | Planned |
+| 9 | Retention, legal hold, and consent | Planned |
+| 10 | SDK and integrations | Planned |
+| 11 | Interactive playground | Planned |
+| 12 | Stable governed runtime | Planned |
 
----
+A phase is not complete because code exists.
 
-## Version 0.1 — Memory Storage
+A phase is complete when:
 
-- FastAPI backend
-- PostgreSQL
-- Initial memory model
+- scoped capability is implemented
+- tests validate required invariants
+- governance boundaries remain intact
+- audit evidence exists where required
+- documentation matches implementation
+- limitations are explicit
 
----
-
-## Version 0.2 — Memory Retrieval
-
-- Embedding pipeline
-- Retrieval service
-- Context generation
-
----
-
-## Version 0.3 — Memory Policy Engine
-
-- Memory extraction
-- Confidence scoring
-- Deduplication
-- Policy evaluation
-
----
-
-## Version 0.4 — Memory Governance
-
-- Review workflows
-- Human approval
-- Audit logs
-- Memory lifecycle
+See `docs/rollout.md`.
 
 ---
 
-## Version 0.5 — Evaluation
+## Current Status
 
-- Retrieval evaluation
-- Recall benchmarks
-- Precision metrics
-- Memory quality evaluation
+MemoryOps AI is currently in **Phase 0 — Design Spine**.
 
----
+The current repository defines:
 
-## Version 1.0
+- product boundary
+- system architecture
+- storage strategy
+- retrieval strategy
+- policy authority
+- observability model
+- deletion guarantee
+- security threat model
+- governance model
+- HTTP API contract
+- initial PostgreSQL schema
+- phased rollout
 
-Production-ready AI memory platform.
+The governed runtime is not yet implemented.
 
----
+The next phase introduces the core write path:
 
-# Engineering Principles
-
-This project follows several guiding principles.
-
-## Documentation before implementation
-
-Major engineering decisions are documented before code is written.
-
----
-
-## Architecture before frameworks
-
-Frameworks serve the architecture—not the other way around.
-
----
-
-## Evaluation over assumptions
-
-Every capability should be measurable.
-
----
-
-## Reproducibility
-
-Engineering decisions should be understandable months later.
-
----
-
-## Learning in public
-
-The repository documents not only the final implementation, but also the reasoning behind it.
-
----
-
-# Current Status
-
-Current Version
-
-```
-Version 0.0
+```text
+Gateway
+   ↓
+Extractor
+   ↓
+Policy Broker
+   ↓
+Write Service
+   ↓
+Repository
+   ↓
+Audit Service
 ```
 
-Current Focus
-
-```
-Repository Genesis
-Engineering Foundation
-```
-
-The project is currently establishing its architecture, documentation, and engineering processes before application development begins.
+The repository will only claim capabilities that are implemented and validated.
 
 ---
 
-# Inspiration
+## Design Documentation
 
-This project is inspired by production AI engineering practices and explores ideas found across modern AI infrastructure, memory systems, evaluation frameworks, and agent engineering.
+| Document | Purpose |
+|---|---|
+| `docs/design/product-blueprint.md` | Product boundary and system intent |
+| `docs/architecture/system-overview.md` | High-level system architecture |
+| `docs/security.md` | Threat model and security invariants |
+| `docs/governance.md` | Memory authority and lifecycle governance |
+| `docs/api-contracts.md` | Canonical HTTP contract |
+| `docs/rollout.md` | Phased delivery plan |
+| `infra/adr/` | Architecture decisions |
+| `infra/db/migrations/` | Executable persistence schema |
 
-The implementation and engineering decisions in this repository are developed as a learning exercise and are documented in the project's Architecture Decision Records (ADRs).
+The repository is designed so architecture, implementation, tests, evaluation, and documentation evolve together.
 
 ---
 
-# License
+## Engineering Principle
+
+> Memory that persists can influence future decisions.
+
+Therefore, memory is not treated as passive application data.
+
+The write path is a policy boundary.
+
+The read path is a context admission boundary.
+
+The deletion path is a forgetting boundary.
+
+Every important memory decision should remain governed, observable, and explainable.
+
+---
+
+## License
 
 MIT License.
