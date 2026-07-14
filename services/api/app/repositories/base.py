@@ -3,7 +3,7 @@ from uuid import UUID
 from typing import List, Optional
 
 from ..domain.models import MemoryRecord
-from ..domain.enums import MemoryStatus
+from ..domain.enums import MemoryStatus, MemoryType
 
 class MemoryRepository(ABC):
     @abstractmethod
@@ -49,6 +49,10 @@ class MemoryRepository(ABC):
            must be rejected (e.g., raise ValueError). Deleted memory is terminal and cannot be restored.
         3. Segregation of Deletion: The update call must not transition a record's status to `deleted`. 
            Logical deletion must occur exclusively through the delete() method.
+        4. Identity Coordinate Immutability: The update must not alter the record's core mutation coordinate.
+           `memory_type` and `identity_slot` are immutable after admission and must match the persisted record exactly.
+        5. Admission Provenance Immutability: Immutable admission fields (`initial_policy_decision`, 
+           `initial_policy_reason`) must not be updated during mutation and must match the persisted record exactly.
 
         Args:
             record: The updated MemoryRecord to persist.
@@ -124,3 +128,42 @@ class MemoryRepository(ABC):
             A list of active MemoryRecords.
         """
         pass
+
+    @abstractmethod
+    async def get_active_by_slot(
+        self,
+        tenant_id: str,
+        user_id: str,
+        memory_type: MemoryType,
+        identity_slot: str,
+    ) -> List[MemoryRecord]:
+        """
+        Retrieves active memory records occupying the specified identity slot.
+
+        The matching is strictly owner-scoped and active-only, returning only records where:
+        - record.tenant_id == tenant_id
+        - record.user_id == user_id
+        - record.memory_type == memory_type
+        - record.identity_slot == identity_slot
+        - record.status == MemoryStatus.ACTIVE
+
+        Bounded Results Semantics:
+        - len(result) == 0: No active occupant exists (vacant slot).
+        - len(result) == 1: Exactly one active occupant was found (current mutation target).
+        - len(result) == 2: At least two active occupants exist; two records are sufficient evidence of 
+          an anomalous duplicate state for a known SINGLE slot.
+
+        Deterministic Ordering:
+        - The results must be ordered by created_at DESC, then id ASC.
+
+        Args:
+            tenant_id: The tenant scope identifier.
+            user_id: The user scope identifier.
+            memory_type: The memory type namespace.
+            identity_slot: The canonical slot string.
+
+        Returns:
+            A list of active MemoryRecords (length 0, 1, or 2).
+        """
+        pass
+
