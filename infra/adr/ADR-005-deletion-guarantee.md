@@ -26,17 +26,18 @@ A delete operation will:
 - set `deleted_at` to the deletion timestamp
 - emit a `memory_deleted` audit event
 
-All default repository read operations must return only active memories.
+All default repository read operations must return only active memories. Conceptually, repository access is separated into two categories:
 
-Deleted memories must be structurally excluded from:
+1. **Retrieval methods** (e.g., `search_candidates`, `semantic_search`, `lexical_search`):
+   These always enforce:
+   - `tenant_id`
+   - `user_id`
+   - `status = 'active'`
 
-- memory retrieval
-- semantic candidate search
-- lexical candidate search
-- default memory listing
-- context composition
+   Deleted, pending, rejected, and archived memories must remain structurally excluded from all application context retrieval paths.
 
-The active-status filter must be enforced centrally at the repository boundary rather than independently by API endpoints or application services.
+2. **Governance methods** (e.g., `list_by_status`, `list_pending`, `get_for_governance`):
+   These may explicitly inspect non-active lifecycle states (such as pending or archived) but must still strictly enforce `tenant_id` and `user_id` scope isolation. Deleted memories remain excluded from default listing.
 
 Deletion operations must be idempotent.
 
@@ -85,7 +86,7 @@ Tests must verify that deleted memories cannot appear in retrieval, listing, can
 1. A deleted memory must never influence a future response.
 2. Deleted memories must never enter the ranking pipeline.
 3. Deleted memories must never enter context composition.
-4. The active-status filter must be enforced at the repository boundary.
+4. The active-status filter is enforced at the repository boundary for all application retrieval paths.
 5. Every deletion must produce governance evidence.
 6. Deletion must be idempotent.
 7. Logical deletion and physical erasure must remain explicitly distinguished.
