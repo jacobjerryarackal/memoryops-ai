@@ -346,19 +346,21 @@ Physical content and vector compaction are separate lifecycle capabilities plann
 
 MemoryOps AI separates governance evidence from operational telemetry.
 
-### Audit Stream
+### Audit Stream (Append-Only Governance Evidence)
 
 Answers:
 
 > What happened to memory state?
 
-Examples:
+Governance audit events record memory lifecycle mutations:
 
 ```text
 memory_created
 memory_pending_approval
 memory_blocked
+memory_dropped
 memory_updated
+memory_merged
 memory_approved
 memory_rejected
 memory_archived
@@ -367,13 +369,21 @@ memory_deleted
 
 Audit history is append-only.
 
-### Operational Stream
+### Operational Stream (Operational Telemetry)
 
 Answers:
 
 > How did the system behave?
 
-Structured events may contain:
+Operational telemetry captures reads, performance, and bypasses:
+
+```text
+memory_retrieved
+retrieval_failed
+temporary_chat_skipped
+```
+
+Structured telemetry logs may contain:
 
 ```text
 trace_id
