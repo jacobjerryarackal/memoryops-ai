@@ -66,6 +66,10 @@ CREATE TABLE memories (
             reinforcement_count >= 0
         ),
 
+    -- Note: 1536 is the initial embedding contract size. Changing the embedding dimension requires:
+    -- 1. A new database migration to alter or add the vector column size.
+    -- 2. Re-embedding all existing stored memory content using the new model.
+    -- 3. Updating system readiness and configuration validation logic.
     embedding VECTOR(1536),
 
     source_kind TEXT NOT NULL DEFAULT 'chat',
@@ -74,10 +78,10 @@ CREATE TABLE memories (
 
     source_excerpt TEXT,
 
-    policy_decision TEXT
+    initial_policy_decision TEXT
         CHECK (
-            policy_decision IS NULL
-            OR policy_decision IN (
+            initial_policy_decision IS NULL
+            OR initial_policy_decision IN (
                 'SAVE',
                 'PENDING_APPROVAL',
                 'UPDATE_EXISTING',
@@ -85,11 +89,13 @@ CREATE TABLE memories (
             )
         ),
 
-    policy_reason TEXT,
+    initial_policy_reason TEXT,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    archived_at TIMESTAMPTZ,
 
     deleted_at TIMESTAMPTZ,
 
@@ -97,6 +103,12 @@ CREATE TABLE memories (
         CHECK (
             status <> 'deleted'
             OR deleted_at IS NOT NULL
+        ),
+
+    CONSTRAINT archived_memory_requires_archived_at
+        CHECK (
+            status <> 'archived'
+            OR archived_at IS NOT NULL
         )
 );
 
