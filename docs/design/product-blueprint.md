@@ -118,15 +118,28 @@ MemoryOps AI owns:
 
 # 7. Out of Scope
 
-MemoryOps AI is not:
+MemoryOps AI is not a general-purpose chatbot product. However, the governed demonstration/runtime may use model inference where required to execute the complete memory loop:
 
-- a chatbot
-- an LLM provider
-- a prompt engineering framework
-- an orchestration framework
-- an authentication provider
-- a vector database
-- a frontend framework
+```text
+memory read
+→ context composition
+→ assistant turn
+→ candidate extraction
+→ policy decision
+→ governed memory write
+```
+
+The `/api/chat` endpoint remains the canonical combined turn boundary.
+
+MemoryOps AI does not directly own or specialize in:
+
+- general chatbot interfaces
+- generic LLM providers
+- prompt engineering frameworks
+- orchestration frameworks
+- authentication providers
+- generic vector databases (except as a relational system of record)
+- frontend application frameworks
 
 These systems may integrate with MemoryOps AI but remain independent.
 
