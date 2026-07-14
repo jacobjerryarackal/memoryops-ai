@@ -7,6 +7,7 @@ from .write import (
     InvalidPolicyResultError,
     UnsupportedDecisionError,
 )
+from .retrieval import Retriever, Ranker
 
 __all__ = [
     "AuditService",
@@ -17,4 +18,6 @@ __all__ = [
     "TargetUnavailableError",
     "InvalidPolicyResultError",
     "UnsupportedDecisionError",
+    "Retriever",
+    "Ranker",
 ]
