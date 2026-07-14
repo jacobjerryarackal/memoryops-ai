@@ -269,3 +269,184 @@ def test_list_by_status_scoped_filtering():
         # 2. list_by_status under wrong scope
         assert len(await repo.list_by_status("tenant_b", "user_b", MemoryStatus.ARCHIVED)) == 0
     asyncio.run(run())
+
+
+def test_get_active_by_slot_basic_scenarios():
+    async def run():
+        repo = InMemoryMemoryRepository()
+        tenant = "tenant_a"
+        user = "user_a"
+
+        # 1. Zero matching active records returns []
+        res = await repo.get_active_by_slot(tenant, user, MemoryType.SEMANTIC, "profession")
+        assert res == []
+
+        # Create one active match
+        rec1 = MemoryRecord(
+            id=uuid4(), tenant_id=tenant, user_id=user, content="Engineer", memory_type=MemoryType.SEMANTIC,
+            initial_policy_decision=PolicyDecision.SAVE, initial_policy_reason="test",
+            identity_slot="profession"
+        )
+        await repo.create(rec1)
+
+        # 2. One exact active match returns one record
+        res1 = await repo.get_active_by_slot(tenant, user, MemoryType.SEMANTIC, "profession")
+        assert len(res1) == 1
+        assert res1[0].id == rec1.id
+        assert res1[0].identity_slot == "profession"
+
+        # Create more matches to test bounded result and deterministic ordering
+        recs = []
+        base_time = datetime.now(timezone.utc)
+        for i in range(3):
+            r = MemoryRecord(
+                id=uuid4(), tenant_id=tenant, user_id=user, content=f"Eng {i}", memory_type=MemoryType.SEMANTIC,
+                initial_policy_decision=PolicyDecision.SAVE, initial_policy_reason="test",
+                identity_slot="profession",
+                created_at=base_time + timedelta(seconds=i+1)
+            )
+            recs.append(await repo.create(r))
+
+        # 3. get_active_by_slot returns exactly two records (bounded result)
+        res2 = await repo.get_active_by_slot(tenant, user, MemoryType.SEMANTIC, "profession")
+        assert len(res2) == 2
+        # Deterministic ordering is created_at DESC (newest first), then id ASC
+        assert res2[0].id == recs[2].id
+        assert res2[1].id == recs[1].id
+
+        # 4. Mutating returned records does not mutate internal repository state (deep copy check)
+        res2[0].content = "MUTATED"
+        res3 = await repo.get_active_by_slot(tenant, user, MemoryType.SEMANTIC, "profession")
+        assert res3[0].content != "MUTATED"
+
+    asyncio.run(run())
+
+
+def test_get_active_by_slot_filters():
+    async def run():
+        repo = InMemoryMemoryRepository()
+        tenant = "tenant_a"
+        user = "user_a"
+
+        # Create active record
+        rec = MemoryRecord(
+            id=uuid4(), tenant_id=tenant, user_id=user, content="Engineer", memory_type=MemoryType.SEMANTIC,
+            initial_policy_decision=PolicyDecision.SAVE, initial_policy_reason="test",
+            identity_slot="profession"
+        )
+        await repo.create(rec)
+
+        # 1. Scope isolation check: different tenant
+        res_t = await repo.get_active_by_slot("tenant_b", user, MemoryType.SEMANTIC, "profession")
+        assert len(res_t) == 0
+
+        # 2. Scope isolation check: different user
+        res_u = await repo.get_active_by_slot(tenant, "user_b", MemoryType.SEMANTIC, "profession")
+        assert len(res_u) == 0
+
+        # 3. Memory type mismatch check
+        res_type = await repo.get_active_by_slot(tenant, user, MemoryType.PROCEDURAL, "profession")
+        assert len(res_type) == 0
+
+        # 4. Identity slot mismatch check
+        res_slot = await repo.get_active_by_slot(tenant, user, MemoryType.SEMANTIC, "residence")
+        assert len(res_slot) == 0
+
+        # 5. Non-active records exclusion
+        # Pending
+        rec_pending = MemoryRecord(
+            id=uuid4(), tenant_id=tenant, user_id=user, content="Engineer", memory_type=MemoryType.SEMANTIC,
+            status=MemoryStatus.PENDING,
+            initial_policy_decision=PolicyDecision.SAVE, initial_policy_reason="test",
+            identity_slot="profession"
+        )
+        await repo.create(rec_pending)
+        
+        # Archived
+        rec_archived = MemoryRecord(
+            id=uuid4(), tenant_id=tenant, user_id=user, content="Engineer", memory_type=MemoryType.SEMANTIC,
+            status=MemoryStatus.ARCHIVED,
+            archived_at=datetime.now(timezone.utc),
+            initial_policy_decision=PolicyDecision.SAVE, initial_policy_reason="test",
+            identity_slot="profession"
+        )
+        await repo.create(rec_archived)
+
+        # Deleted
+        rec_deleted = MemoryRecord(
+            id=uuid4(), tenant_id=tenant, user_id=user, content="Engineer", memory_type=MemoryType.SEMANTIC,
+            status=MemoryStatus.DELETED,
+            deleted_at=datetime.now(timezone.utc),
+            initial_policy_decision=PolicyDecision.SAVE, initial_policy_reason="test",
+            identity_slot="profession"
+        )
+        await repo.create(rec_deleted)
+
+        res_filter = await repo.get_active_by_slot(tenant, user, MemoryType.SEMANTIC, "profession")
+        assert len(res_filter) == 1
+        assert res_filter[0].id == rec.id
+
+        # 6. identity_slot=None records are not returned
+        rec_none = MemoryRecord(
+            id=uuid4(), tenant_id=tenant, user_id=user, content="Engineer", memory_type=MemoryType.SEMANTIC,
+            initial_policy_decision=PolicyDecision.SAVE, initial_policy_reason="test",
+            identity_slot=None
+        )
+        await repo.create(rec_none)
+        res_none = await repo.get_active_by_slot(tenant, user, MemoryType.SEMANTIC, "profession")
+        assert len(res_none) == 1
+
+    asyncio.run(run())
+
+
+def test_update_identity_immutability():
+    async def run():
+        repo = InMemoryMemoryRepository()
+        tenant = "tenant_a"
+        user = "user_a"
+
+        rec = MemoryRecord(
+            id=uuid4(), tenant_id=tenant, user_id=user, content="Engineer", memory_type=MemoryType.SEMANTIC,
+            initial_policy_decision=PolicyDecision.SAVE, initial_policy_reason="test",
+            identity_slot="profession"
+        )
+        created = await repo.create(rec)
+
+        # 1. Ordinary mutable payload updates still succeed when identity coordinates remain unchanged
+        created.content = "Senior Engineer"
+        updated = await repo.update(created)
+        assert updated.content == "Senior Engineer"
+
+        # 2. memory_type mutation is rejected with ValueError
+        updated.memory_type = MemoryType.PROCEDURAL
+        with pytest.raises(ValueError, match="memory_type is immutable"):
+            await repo.update(updated)
+        
+        # Restore type
+        updated.memory_type = MemoryType.SEMANTIC
+
+        # 3. identity_slot mutation from one concrete slot to another is rejected
+        updated.identity_slot = "residence"
+        with pytest.raises(ValueError, match="identity_slot is immutable"):
+            await repo.update(updated)
+
+        # 4. identity_slot mutation from concrete slot to None is rejected
+        updated.identity_slot = None
+        with pytest.raises(ValueError, match="identity_slot is immutable"):
+            await repo.update(updated)
+
+        # Create a record with identity_slot=None
+        rec_none = MemoryRecord(
+            id=uuid4(), tenant_id=tenant, user_id=user, content="Unclassified", memory_type=MemoryType.SEMANTIC,
+            initial_policy_decision=PolicyDecision.SAVE, initial_policy_reason="test",
+            identity_slot=None
+        )
+        created_none = await repo.create(rec_none)
+
+        # 5. identity_slot mutation from None to concrete slot is rejected
+        created_none.identity_slot = "profession"
+        with pytest.raises(ValueError, match="identity_slot is immutable"):
+            await repo.update(created_none)
+
+    asyncio.run(run())
+
