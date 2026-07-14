@@ -7,7 +7,7 @@ from .write import (
     InvalidPolicyResultError,
     UnsupportedDecisionError,
 )
-from .retrieval import Retriever, Ranker, ContextComposer
+from .retrieval import Retriever, Ranker, ContextComposer, RetrievalCoordinator
 from .embedding import EmbeddingService
 
 __all__ = [
@@ -23,4 +23,5 @@ __all__ = [
     "Ranker",
     "ContextComposer",
     "EmbeddingService",
+    "RetrievalCoordinator",
 ]
