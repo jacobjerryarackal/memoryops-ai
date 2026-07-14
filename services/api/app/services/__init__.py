@@ -9,6 +9,7 @@ from .write import (
 )
 from .retrieval import Retriever, Ranker, ContextComposer, RetrievalCoordinator
 from .embedding import EmbeddingService
+from .openai_embedding import OpenAIEmbeddingService
 
 __all__ = [
     "AuditService",
@@ -24,4 +25,5 @@ __all__ = [
     "ContextComposer",
     "EmbeddingService",
     "RetrievalCoordinator",
+    "OpenAIEmbeddingService",
 ]
