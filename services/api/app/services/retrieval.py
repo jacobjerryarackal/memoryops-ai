@@ -1,12 +1,20 @@
 import math
 import unicodedata
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Optional, Tuple
+
 
 from ..domain.enums import RetrievalMode
 from ..domain.models import MemoryRecord
-from ..domain.retrieval import RetrievalCandidate, ScoreBreakdown, RankedCandidate
+from ..domain.retrieval import (
+    RetrievalCandidate,
+    ScoreBreakdown,
+    RankedCandidate,
+    UsedMemory,
+    UsedMemorySource,
+)
 from ..repositories.base import MemoryRepository
+
 
 
 def normalize_text(text: str) -> List[str]:
@@ -162,3 +170,77 @@ class Ranker:
             )
 
         return ranked
+
+
+class ContextComposer:
+    def __init__(self, max_memories: int = 10, max_characters: int = 4000) -> None:
+        if not isinstance(max_memories, int) or max_memories < 1:
+            raise ValueError("max_memories must be an integer >= 1")
+        if not isinstance(max_characters, int) or max_characters < 1:
+            raise ValueError("max_characters must be an integer >= 1")
+        self.max_memories = max_memories
+        self.max_characters = max_characters
+
+    def compose_context(
+        self,
+        candidates: List[RankedCandidate],
+    ) -> Tuple[str, List[UsedMemory]]:
+        if not candidates:
+            return "", []
+
+        selected_candidates = []
+        used_characters = 0
+
+        for cand in candidates:
+            if len(selected_candidates) >= self.max_memories:
+                break
+
+            content_length = len(cand.memory.content)
+            if used_characters + content_length > self.max_characters:
+                continue
+
+            selected_candidates.append(cand)
+            used_characters += content_length
+
+        if not selected_candidates:
+            return "", []
+
+        # Context Formatting
+        context_lines = []
+        for cand in selected_candidates:
+            context_lines.append(f"- ({cand.memory.memory_type.value}) {cand.memory.content}")
+        context = "\n".join(context_lines)
+
+        # UsedMemory Serialization
+        used_memories = []
+        for cand in selected_candidates:
+            # Deterministic reason generation
+            semantic_contrib = 0.35 * cand.score_breakdown.semantic_score
+            keyword_contrib = 0.20 * cand.score_breakdown.keyword_score
+
+            if semantic_contrib > keyword_contrib and semantic_contrib > 0.0:
+                reason = f"Selected (Rank #{cand.rank}): Semantically relevant to the query (Score: {cand.final_score:.2f})."
+            elif keyword_contrib > semantic_contrib and keyword_contrib > 0.0:
+                reason = f"Selected (Rank #{cand.rank}): Lexically relevant to the query (Score: {cand.final_score:.2f})."
+            else:
+                reason = f"Selected (Rank #{cand.rank}): Balanced relevance context (Score: {cand.final_score:.2f})."
+
+            source_obj = UsedMemorySource(
+                kind=cand.memory.source_kind,
+                excerpt=cand.memory.source_excerpt,
+            )
+
+            # Preserve full precision score and breakdown
+            used_memories.append(
+                UsedMemory(
+                    memory_id=cand.memory.id,
+                    content=cand.memory.content,
+                    memory_type=cand.memory.memory_type,
+                    score=cand.final_score,
+                    reason=reason,
+                    score_breakdown=cand.score_breakdown,
+                    source=source_obj,
+                )
+            )
+
+        return context, used_memories
