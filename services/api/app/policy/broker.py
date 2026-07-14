@@ -1,13 +1,9 @@
 import re
-from typing import Optional
 from ..domain.models import CandidateMemory, PolicyResult
 from ..domain.enums import PolicyDecision, Sensitivity
-from ..repositories.base import MemoryRepository
 
 class PolicyBroker:
-    def __init__(self, repository: Optional[MemoryRepository] = None) -> None:
-        self.repository = repository
-        
+    def __init__(self) -> None:
         # Deterministic secret detection patterns:
         self._secret_patterns = [
             # OpenAI / generic API Key format: e.g. sk-xxxx...
@@ -36,20 +32,7 @@ class PolicyBroker:
                 reason="Candidate memory has high sensitivity classification and requires review."
             )
             
-        # 3. Utility checks (DROP_LOW_UTILITY if importance < 3 or confidence < 0.5)
-        if candidate.importance < 3:
-            return PolicyResult(
-                decision=PolicyDecision.DROP_LOW_UTILITY,
-                reason=f"Candidate importance score ({candidate.importance}) is below the utility threshold of 3."
-            )
-            
-        if candidate.confidence < 0.5:
-            return PolicyResult(
-                decision=PolicyDecision.DROP_LOW_UTILITY,
-                reason=f"Candidate extraction confidence ({candidate.confidence}) is below the utility threshold of 0.5."
-            )
-            
-        # 4. SAVE fallback
+        # 3. SAVE fallback
         return PolicyResult(
             decision=PolicyDecision.SAVE,
             reason="Candidate memory passed all deterministic policy checks."
