@@ -1,11 +1,12 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from ..domain.models import MemoryRecord
 from ..domain.enums import MemoryStatus, MemoryType
 
 class MemoryRepository(ABC):
+
     @abstractmethod
     async def create(self, record: MemoryRecord) -> MemoryRecord:
         """
@@ -167,3 +168,32 @@ class MemoryRepository(ABC):
         """
         pass
 
+    @abstractmethod
+    async def search_candidates(
+        self,
+        tenant_id: str,
+        user_id: str,
+        query_embedding: Optional[List[float]],
+        limit: int = 50,
+    ) -> List[Tuple[MemoryRecord, Optional[float]]]:
+        """
+        Retrieves a bounded pool of active memory candidates scoped by tenant and user.
+
+        If query_embedding is provided, calculates the raw cosine similarity for each
+        active record (excluding records where embedding is None), sorts the records
+        by similarity descending, and returns the top records with their similarity floats.
+
+        If query_embedding is None, retrieves active records in scope without vector
+        matching, returning them with a similarity score of None to signify that
+        semantic evidence is unavailable/not calculated.
+
+        Args:
+            tenant_id: The tenant scope identifier.
+            user_id: The user scope identifier.
+            query_embedding: Optional 1536-dimensional float vector, or None.
+            limit: The maximum number of candidates to return (must be >= 1).
+
+        Returns:
+            A list of tuples containing (MemoryRecord, Optional[float]).
+        """
+        pass
