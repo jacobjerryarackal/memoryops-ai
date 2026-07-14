@@ -1,9 +1,23 @@
 from datetime import datetime, timezone
+import re
 from uuid import UUID, uuid4
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .enums import MemoryType, MemoryStatus, Sensitivity, PolicyDecision, AuditEventAction
+
+SLOT_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+
+def validate_identity_slot_val(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return None
+    trimmed = v.strip()
+    if not trimmed:
+        raise ValueError("identity_slot cannot be empty or whitespace-only")
+    if not SLOT_RE.match(trimmed):
+        raise ValueError("identity_slot must match the canonical grammar '^[a-z][a-z0-9_]{0,63}$'")
+    return trimmed
+
 
 class CandidateMemory(BaseModel):
     tenant_id: str = Field(..., min_length=1, description="Tenant scope identifier")
@@ -16,6 +30,15 @@ class CandidateMemory(BaseModel):
     source_kind: str = Field("chat", description="Origin channel kind")
     source_conversation_id: Optional[str] = Field(None, description="Source conversation identifier")
     source_excerpt: Optional[str] = Field(None, description="Exact source context excerpt")
+    identity_slot: Optional[str] = Field(
+        None,
+        description="Extractor-proposed mutation coordinate (not policy-authoritative; syntactic validity does not prove policy recognition); must follow the canonical grammar or be None"
+    )
+
+    @field_validator("identity_slot")
+    @classmethod
+    def validate_slot_format(cls, v: Optional[str]) -> Optional[str]:
+        return validate_identity_slot_val(v)
 
 
 class PolicyResult(BaseModel):
@@ -51,6 +74,15 @@ class MemoryRecord(BaseModel):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Record update timestamp")
     archived_at: Optional[datetime] = Field(None, description="Archival timestamp")
     deleted_at: Optional[datetime] = Field(None, description="Logical deletion timestamp")
+    identity_slot: Optional[str] = Field(
+        None,
+        description="Persisted mutation coordinate assigned at admission (immutable after admission, although repository-level enforcement is deferred to a subsequent step); must follow the canonical grammar or be None"
+    )
+
+    @field_validator("identity_slot")
+    @classmethod
+    def validate_slot_format(cls, v: Optional[str]) -> Optional[str]:
+        return validate_identity_slot_val(v)
 
     @field_validator("embedding")
     @classmethod
