@@ -124,7 +124,20 @@ Future lifecycle policies may archive memory because of age, decay, or operation
 
 The memory has been logically forgotten.
 
-Deleted memory must never influence future AI context.
+Deleted memory must remain structurally excluded from all application context retrieval paths. Active-only filtering is mandatory for all application retrieval methods and default listing paths.
+
+To enforce this, database and repository access is conceptually divided into two categories:
+
+*   **Retrieval Methods** (e.g., `search_candidates`, `semantic_search`, `lexical_search`):
+    These always enforce:
+    ```text
+    tenant_id
+    user_id
+    status = active
+    ```
+    Non-active memories (deleted, pending, rejected, archived) can never be fetched by retrieval methods.
+*   **Governance Methods** (e.g., `list_by_status`, `list_pending`, `get_for_governance`):
+    These may explicitly inspect non-active lifecycle states within tenant and user scope to enable administrative and moderation actions.
 
 Physical erasure is governed separately from logical deletion.
 
@@ -266,40 +279,48 @@ Deletion must follow the deletion guarantee defined in ADR-005.
 
 ---
 
-# Audit Events
+# Audit Events and Operational Telemetry
 
-Governance actions produce append-only audit evidence.
+MemoryOps AI separates persistent governance evidence (audit logs) from execution logging (operational telemetry).
 
-Initial lifecycle events include:
+## Governance Audit Events
 
-- `memory_created`
-- `memory_pending_approval`
-- `memory_blocked`
-- `memory_dropped`
-- `memory_updated`
-- `memory_merged`
-- `memory_approved`
-- `memory_rejected`
-- `memory_archived`
-- `memory_deleted`
-- `memory_retrieved`
-- `retrieval_failed`
-- `policy_violation`
-- `temporary_chat_skipped`
+Governance audit events record memory lifecycle changes. These records are **append-only**, and the application API exposes no endpoints to update or delete audit history.
 
-An audit event should contain, where applicable:
+Initial lifecycle audit events include:
 
-- `tenant_id`
-- `user_id`
-- `memory_id`
-- `action`
-- `reason`
-- `metadata`
-- `created_at`
+*   `memory_created` — Candidate memory passed automated policy and was saved as active.
+*   `memory_pending_approval` — Candidate memory requires review and was saved as pending.
+*   `memory_blocked` — Candidate memory failed deterministic rules and was blocked.
+*   `memory_dropped` — Candidate memory utility score did not justify storage.
+*   `memory_updated` — Stored memory content or attributes were updated.
+*   `memory_merged` — Candidate memory was merged into an existing active memory.
+*   `memory_approved` — Pending memory was approved by an operator and became active.
+*   `memory_rejected` — Pending memory was rejected by an operator.
+*   `memory_archived` — Active memory was archived.
+*   `memory_deleted` — Active, pending, or archived memory was logically deleted.
 
-Audit records are append-only.
+An audit event should contain:
 
-The application API must not expose operations that update or delete audit history.
+*   `id` (unique audit identifier)
+*   `tenant_id`
+*   `user_id`
+*   `memory_id` (null for blocked/dropped candidates)
+*   `action` (one of the event names above)
+*   `reason` (human-readable explanation)
+*   `metadata`
+*   `trace_id`
+*   `created_at`
+
+## Operational Telemetry Events
+
+Operational telemetry records system performance, reads, and bypasses. These events are processed as structured execution logs and are not part of the append-only governance audit log database:
+
+*   `memory_retrieved` — Active memories retrieved during a read request.
+*   `retrieval_failed` — Retrieval path failed, triggering fallback or degradation.
+*   `temporary_chat_skipped` — Request used temporary mode, bypassing reads and writes.
+
+Operational logs must use trace identifiers for end-to-end request tracking.
 
 ---
 
