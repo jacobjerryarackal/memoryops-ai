@@ -1,11 +1,13 @@
 import asyncio
+import math
 from datetime import datetime, timezone
 from uuid import UUID
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from ..domain.models import MemoryRecord
 from ..domain.enums import MemoryStatus, MemoryType
 from .base import MemoryRepository
+
 
 class InMemoryMemoryRepository(MemoryRepository):
     def __init__(self) -> None:
@@ -150,3 +152,58 @@ class InMemoryMemoryRepository(MemoryRepository):
             sliced = matching[:2]
             return [r.model_copy(deep=True) for r in sliced]
 
+    async def search_candidates(
+        self,
+        tenant_id: str,
+        user_id: str,
+        query_embedding: Optional[List[float]],
+        limit: int = 50,
+    ) -> List[Tuple[MemoryRecord, Optional[float]]]:
+        if limit < 1:
+            raise ValueError("limit must be >= 1")
+
+        if query_embedding is not None and len(query_embedding) != 1536:
+            raise ValueError("query_embedding must be exactly 1536 dimensions")
+
+        async with self._lock:
+            active_records = [
+                r
+                for r in self._records.values()
+                if r.tenant_id == tenant_id and r.user_id == user_id and r.status == MemoryStatus.ACTIVE
+            ]
+
+            if query_embedding is None:
+                # Deterministic stable ordering: created_at DESC, then id ASC
+                active_records.sort(key=lambda r: r.id)
+                active_records.sort(key=lambda r: r.created_at, reverse=True)
+
+                sliced = active_records[:limit]
+                return [(r.model_copy(deep=True), None) for r in sliced]
+
+            # Otherwise calculate similarity
+            candidates_with_sim = []
+            for r in active_records:
+                if r.embedding is None:
+                    continue
+
+                # Cosine similarity calculation
+                dot = sum(a * b for a, b in zip(query_embedding, r.embedding))
+                norm_u = math.sqrt(sum(a * a for a in query_embedding))
+                norm_v = math.sqrt(sum(a * a for a in r.embedding))
+                sim = dot / (norm_u * norm_v) if (norm_u > 0.0 and norm_v > 0.0) else 0.0
+                candidates_with_sim.append((r, sim))
+
+            # Deterministic sorting:
+            # Primary: similarity DESC
+            # Secondary: created_at DESC
+            # Tertiary: id ASC
+            # We perform stable sorts from least significant key to most significant key:
+            # 1. ID ASC
+            candidates_with_sim.sort(key=lambda x: x[0].id)
+            # 2. created_at DESC
+            candidates_with_sim.sort(key=lambda x: x[0].created_at, reverse=True)
+            # 3. similarity DESC
+            candidates_with_sim.sort(key=lambda x: x[1], reverse=True)
+
+            sliced = candidates_with_sim[:limit]
+            return [(r.model_copy(deep=True), sim) for r, sim in sliced]
