@@ -30,7 +30,6 @@ Examples include:
 - `memory_blocked`
 - `memory_updated`
 - `memory_approved`
-- `memory_retrieved`
 - `memory_deleted`
 
 The audit stream is the governance source of truth.
@@ -41,7 +40,7 @@ Audit events must preserve enough information to reconstruct why a memory operat
 
 Emit structured JSON logs for system execution.
 
-Operational events should include, where applicable:
+Operational events (such as `memory_retrieved`, `retrieval_failed`, and `temporary_chat_skipped`) should include, where applicable:
 
 - `trace_id`
 - `tenant_id`
