@@ -1,8 +1,7 @@
 # MemoryOps AI Roadmap
 
 **Version:** 0.1
-
-**Status:** Repository Genesis
+**Status:** Phase 0 — Design Spine
 
 ---
 
@@ -10,350 +9,191 @@
 
 This roadmap defines the engineering evolution of MemoryOps AI.
 
-Each version introduces one major capability while maintaining architectural consistency, documentation quality, and operational readiness.
-
-The roadmap exists to answer three questions:
-
-1. What are we building?
-2. Why are we building it now?
-3. What must be completed before moving forward?
-
-Every version should produce working software, updated documentation, architectural decisions (where applicable), and evaluation artifacts.
+The roadmap uses **Engineering Phases** as the primary implementation gates. Project release versions are kept distinct from these phases to decouple structural development milestones from application deployment versions.
 
 ---
 
-# Engineering Lifecycle
+# Phase to Version Mapping
 
-MemoryOps AI evolves through four engineering stages.
+The platform progresses through the following gated milestones:
 
-```
-Design
-    ↓
-Architecture
-    ↓
-Implementation
-    ↓
-Verification
-```
-
-No implementation should begin without a documented design.
-
-No feature is considered complete without verification.
+| Engineering Phase | Scope | Release Version |
+|---|---|---|
+| **Phase 0** | Design spine: product definition, architecture, security, governance, ADRs, schema, API contracts | **v0.1.0** |
+| **Phase 1** | Core write path: gateway → extractor → policy broker → write service → repository → audit | **v0.2.0** |
+| **Phase 2** | Read path: retriever → ranker → context composer | **v0.3.0** |
+| **Phase 3** | Governance control plane: approve, reject, edit, archive, delete, audit | **v0.4.0** |
+| **Phase 4** | Production depth: pgvector, tenant isolation, evaluations, observability | **v0.5.0** |
+| **Phase 5** | Background intelligence: decay, archive, deletion verification, reflection | **v0.6.0** |
+| **Phase 6** | Deletion compaction and vector purge verification | **v0.7.0** |
+| **Phase 7** | Worker runtime and scheduled lifecycle orchestration | **v0.8.0** |
+| **Phase 8** | Public results dashboard and evidence explorer | **v0.9.0** |
+| **Phase 9** | Retention, legal hold, and consent-aware memory | **v0.10.0** |
+| **Phase 10** | SDK and integration examples | **v0.11.0** |
+| **Phase 11** | Interactive playground and hosted demo | **v0.12.0** |
+| **Phase 12** | Production hardening and stable governed runtime | **v1.0.0** |
 
 ---
 
-# Version 0.0 — Repository Genesis
+# Phase 0 — Design Spine (v0.1.0)
 
 ## Goal
-
-Create the engineering foundation for the project.
-
-## Why
-
-Before building software, the repository should establish clear engineering direction, project conventions, and documentation standards.
-
-## Deliverables
-
-- Repository structure
-- Product Blueprint
-- README
-- ROADMAP
-- AGENTS
-- CLAUDE
-- License
-- Initial documentation structure
+Establish the technical design spine, system architecture, database schema, security invariants, governance model, and HTTP API contracts before implementation begins.
 
 ## Exit Criteria
-
-- Repository is initialized
-- Documentation foundation exists
-- Development workflow is defined
+- Security, governance, and architecture documents are reviewed and approved.
+- Executable SQL database schema is drafted.
+- API contract endpoints are formally defined.
 
 ---
 
-# Version 0.1 — Core Memory Platform
+# Phase 1 — Core Write Path (v0.2.0)
 
 ## Goal
-
-Enable reliable storage and retrieval of structured memory.
-
-## Why
-
-Memory storage is the fundamental capability upon which every future feature depends.
+Implement the core write pipeline that processes incoming information, runs automated policies, and persists memory with provenance and audit logs.
 
 ## Deliverables
-
-- FastAPI backend
-- PostgreSQL
-- Initial memory schema
-- CRUD operations
-- Repository layer
-- Service layer
-- Docker setup
+- FastAPI gateway hosting `POST /api/chat`.
+- In-memory repository implementing memory storage.
+- Extractor service that proposes candidate memories.
+- Policy Broker evaluating candidates (`SAVE`, `PENDING_APPROVAL`, `BLOCK`, `DROP_LOW_UTILITY`, `UPDATE_EXISTING`, `MERGE_WITH_EXISTING`).
+- Write Service executing broker outcomes.
+- Audit Service capturing append-only audit evidence.
 
 ## Exit Criteria
-
-- Memory can be created
-- Memory can be updated
-- Memory can be deleted
-- Memory can be queried
+- System successfully processes messages and persists eligible memory.
+- Prohibited secrets and credentials are blocked before storage.
+- Audit records are successfully written to database logs.
 
 ---
 
-# Version 0.2 — Retrieval Engine
+# Phase 2 — Read Path (v0.3.0)
 
 ## Goal
-
-Retrieve relevant memories efficiently.
-
-## Why
-
-Stored memories provide no value unless they can be retrieved accurately.
+Enable context composition for LLMs by retrieving relevant active memories while strictly respecting governance boundaries.
 
 ## Deliverables
-
-- Embedding generation
-- Vector search
-- Ranking pipeline
-- Hybrid retrieval
-- Context assembly
+- Hybrid Retriever (combining semantic and lexical queries).
+- Deterministic Ranker using normalized signals.
+- Context Composer formatting top-ranked memories.
+- `used_memories` explainability metadata in responses.
 
 ## Exit Criteria
-
-- Relevant memories are returned
-- Retrieval latency is measured
-- Retrieval quality is evaluated
+- Only `active` memories are retrievable.
+- Pending, rejected, archived, and deleted memories are structurally excluded from retrieval.
+- Retrieval degrades gracefully under service faults.
 
 ---
 
-# Version 0.3 — Memory Pipeline
+# Phase 3 — Governance Control Plane (v0.4.0)
 
 ## Goal
-
-Automate the lifecycle of incoming information.
-
-## Why
-
-Applications should not manually decide what becomes memory.
+Introduce administrative capabilities and lifecycle controls to allow operators to review, mutate, and delete memories.
 
 ## Deliverables
-
-- Memory extraction
-- Classification
-- Validation
-- Deduplication
-- Memory policies
+- Governance endpoints (`GET /api/memories`, `PATCH`, `DELETE`).
+- Review queue interface to approve/reject pending memories.
+- Archival and logical deletion flows.
 
 ## Exit Criteria
-
-- Incoming conversations generate candidate memories
-- Duplicate memories are prevented
-- Validation pipeline operates automatically
+- Memories can be transitioned between lifecycle states.
+- Deleted memories are excluded from all default read operations.
+- All actions generate append-only audit events.
 
 ---
 
-# Version 0.4 — Policy Engine
+# Phase 4 — Production Depth (v0.5.0)
 
 ## Goal
-
-Introduce deterministic governance for memory decisions.
-
-## Why
-
-Memory should be governed by explicit engineering rules rather than LLM output alone.
+Incorporate pgvector persistence, database-level tenant isolation, and automated evaluation metrics.
 
 ## Deliverables
-
-- Policy engine
-- Confidence thresholds
-- Human review support
-- Decision logging
+- Production PostgreSQL storage repository with pgvector indexes.
+- Tenant isolation verification tests.
+- Evaluation suite for retrieval relevance and policy correctness.
+- OpenTelemetry integration and tracing.
 
 ## Exit Criteria
-
-- Every stored memory passes policy validation
-- Every rejection is explainable
+- Vector-based semantic search executes in database.
+- Automated tests verify tenant isolation at the repository boundary.
 
 ---
 
-# Version 0.5 — Memory Lifecycle
+# Phase 5 — Background Intelligence (v0.6.0)
 
 ## Goal
-
-Support memory evolution over time.
-
-## Why
-
-Production memory systems must support editing, forgetting, expiration, and lifecycle management.
+Implement background lifecycle operations such as memory decay, reflection, and conflict resolution.
 
 ## Deliverables
-
-- Memory updates
-- Forgetting
-- Expiration
-- Retention policies
-- Lifecycle workers
+- Background lifecycle worker orchestration.
+- Memory decay algorithms.
+- Conflict detection and merge proposals.
 
 ## Exit Criteria
-
-- Memory lifecycle operates automatically
-- Retention policies are configurable
+- Memory decay and reflection proposals run asynchronously without interrupting chat paths.
 
 ---
 
-# Version 0.6 — Governance Platform
+# Phase 6 — Deletion Compaction (v0.7.0)
 
 ## Goal
-
-Provide operational control over memory.
-
-## Why
-
-Operators require visibility into system behavior.
+Implement physical content and vector purge compaction for soft-deleted records.
 
 ## Deliverables
-
-- Governance dashboard
-- Audit logs
-- Memory history
-- Administrative tools
+- Compaction runner that purges content and vectors for deleted rows.
+- Preservation of content-free deletion tombstones.
 
 ## Exit Criteria
-
-- Every memory operation is traceable
-- Administrative actions are recorded
+- Deleted memory content is cleared from disk/indexes while preserving the audit footprint.
 
 ---
 
-# Version 0.7 — Evaluation Framework
+# Phase 7 — Worker Runtime (v0.8.0)
 
 ## Goal
-
-Measure memory system quality.
-
-## Why
-
-AI systems require continuous evaluation.
-
-## Deliverables
-
-- Evaluation datasets
-- Retrieval benchmarks
-- Policy benchmarks
-- Accuracy metrics
-- Performance metrics
-
-## Exit Criteria
-
-- Evaluation suite passes
-- Baseline metrics are established
+Ensure operational stability, locking, and scheduling of background jobs.
 
 ---
 
-# Version 0.8 — Observability
+# Phase 8 — Results Dashboard (v0.9.0)
 
 ## Goal
-
-Expose operational insights.
-
-## Why
-
-Production systems require monitoring and diagnostics.
-
-## Deliverables
-
-- Metrics
-- Tracing
-- Logging
-- Health checks
-- Performance dashboards
-
-## Exit Criteria
-
-- Operational health is measurable
-- Bottlenecks are identifiable
+Provide a read-only monitoring interface to view system metrics and evidence.
 
 ---
 
-# Version 0.9 — Integrations
+# Phase 9 — Retention and Consent (v0.10.0)
 
 ## Goal
-
-Allow external AI systems to adopt MemoryOps AI.
-
-## Why
-
-MemoryOps should integrate with existing AI ecosystems.
-
-## Deliverables
-
-- Python SDK
-- REST API improvements
-- Framework integrations
-- Client libraries
-
-## Exit Criteria
-
-- External applications can integrate with minimal configuration
+Integrate retention windows, consent withdrawal tracking, and legal holds.
 
 ---
 
-# Version 1.0 — Production Release
+# Phase 10 — SDK and Integrations (v0.11.0)
 
 ## Goal
+Provide a typed client SDK for simple third-party integration.
 
-Deliver a production-ready memory operating system.
+---
 
-## Deliverables
+# Phase 11 — Interactive Playground (v0.12.0)
 
-- Stable API
-- Complete documentation
-- Security review
-- Deployment guides
-- Release automation
-- Benchmarks
-- Public demo
-- Example applications
+## Goal
+Deploy a web interface for developers to test the complete memory loop.
 
-## Exit Criteria
+---
 
-- Production deployment succeeds
-- Documentation is complete
-- Release checklist passes
+# Phase 12 — Production Hardening (v1.0.0)
+
+## Goal
+Execute stable release validation, penetration testing, and performance benchmarking.
 
 ---
 
 # Definition of Done
 
-A version is considered complete only when:
-
-- Implementation is complete.
-- Documentation is updated.
-- Architecture reflects implementation.
-- ADRs are created when architectural decisions change.
-- Tests pass.
-- Evaluations pass.
-- Performance targets are met.
-- Repository remains buildable.
-
----
-
-# Engineering Principles
-
-MemoryOps AI follows several engineering principles throughout every version.
-
-- Documentation evolves with implementation.
-- Architecture drives code.
-- Deterministic systems govern probabilistic systems.
-- Every architectural decision should be traceable.
-- Every feature should be measurable.
-- Every capability should be testable.
-- Simplicity is preferred over unnecessary complexity.
-
----
-
-# Looking Ahead
-
-This roadmap is intentionally iterative.
-
-The objective is not to build every capability immediately, but to evolve MemoryOps AI into a production-grade memory operating system through deliberate, well-documented engineering decisions.
+A phase is considered complete only when:
+- Scoped code is implemented and verified.
+- Unit and integration tests validate the invariants.
+- Documentation and architecture reflect actual behavior.
+- All lifecycle mutations generate append-only audit evidence.
