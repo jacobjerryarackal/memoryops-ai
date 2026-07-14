@@ -14,6 +14,8 @@ from ..domain.retrieval import (
     UsedMemorySource,
 )
 from ..repositories.base import MemoryRepository
+from .embedding import EmbeddingService
+
 
 
 
@@ -244,3 +246,48 @@ class ContextComposer:
             )
 
         return context, used_memories
+
+
+class RetrievalCoordinator:
+    def __init__(
+        self,
+        embedding_service: EmbeddingService,
+        retriever: Retriever,
+        ranker: Ranker,
+        context_composer: ContextComposer,
+    ) -> None:
+        self._embedding_service = embedding_service
+        self._retriever = retriever
+        self._ranker = ranker
+        self._context_composer = context_composer
+
+    async def retrieve_context(
+        self,
+        tenant_id: str,
+        user_id: str,
+        query_text: str,
+        temporary_chat: bool = False,
+    ) -> Tuple[str, List[UsedMemory], RetrievalMode]:
+        if temporary_chat:
+            return "", [], RetrievalMode.NONE
+
+        try:
+            query_embedding = await self._embedding_service.generate_embedding(query_text)
+            retrieval_mode = RetrievalMode.HYBRID
+        except Exception:
+            query_embedding = None
+            retrieval_mode = RetrievalMode.FALLBACK
+
+        candidates = await self._retriever.retrieve(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            query_text=query_text,
+            query_embedding=query_embedding,
+        )
+
+        now = datetime.now(timezone.utc)
+        ranked_candidates = self._ranker.rank(candidates, now=now)
+
+        context, used_memories = self._context_composer.compose_context(ranked_candidates)
+
+        return context, used_memories, retrieval_mode
