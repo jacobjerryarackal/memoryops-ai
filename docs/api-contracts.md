@@ -229,7 +229,16 @@ When memory contributes to context, `used_memories` contains:
       }
     }
 
-The final retrieval score follows the initial deterministic ranking model:
+The ranking inputs are normalized to the range `[0,1]` before weights are applied. The normalization functions are:
+
+*   `semantic_score = clamp(cosine_similarity, 0, 1)`
+*   `keyword_score = matched_query_terms / max(total_unique_query_terms, 1)`
+*   `importance_score = importance / 10`
+*   `confidence_score = clamp(confidence, 0, 1)`
+*   `recency_score = exp(-age_days / 30)`
+*   `reinforcement_score = 1 - exp(-reinforcement_count / 5)`
+
+The final retrieval score is computed as:
 
     score =
         0.35 * semantic_score
@@ -302,8 +311,14 @@ The normal active memory surface must never expose deleted memory as active stat
         "confidence": 0.92,
         "sensitivity": "low",
         "reinforcement_count": 1,
+        "source_kind": "chat",
+        "source_conversation_id": "conversation_demo",
+        "source_excerpt": "Remember that I prefer Python.",
+        "initial_policy_decision": "SAVE",
+        "initial_policy_reason": "Durable technical preference.",
         "created_at": "2026-07-14T10:00:00Z",
         "updated_at": "2026-07-14T10:00:00Z",
+        "archived_at": null,
         "deleted_at": null
       }
     ]
@@ -348,13 +363,16 @@ Returns memory provenance and lifecycle metadata.
 
     {
       "memory_id": "mem_123",
-      "source": {
-        "kind": "chat",
-        "conversation_id": "conversation_123"
-      },
+      "source_kind": "chat",
+      "source_conversation_id": "conversation_123",
+      "source_excerpt": "Remember that I prefer Python.",
+      "initial_policy_decision": "SAVE",
+      "initial_policy_reason": "Durable technical preference.",
       "status": "active",
       "created_at": "2026-07-14T10:00:00Z",
       "updated_at": "2026-07-14T10:00:00Z",
+      "archived_at": null,
+      "deleted_at": null,
       "reinforcement_count": 1,
       "importance": 8,
       "confidence": 0.92,
@@ -497,6 +515,7 @@ Returns append-only governance events.
         "action": "memory_created",
         "reason": "Candidate passed policy.",
         "metadata": {},
+        "trace_id": "trace_123",
         "created_at": "2026-07-14T10:00:00Z"
       }
     ]
