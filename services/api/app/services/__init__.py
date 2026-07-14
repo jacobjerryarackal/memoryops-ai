@@ -7,7 +7,7 @@ from .write import (
     InvalidPolicyResultError,
     UnsupportedDecisionError,
 )
-from .retrieval import Retriever, Ranker
+from .retrieval import Retriever, Ranker, ContextComposer
 
 __all__ = [
     "AuditService",
@@ -20,4 +20,5 @@ __all__ = [
     "UnsupportedDecisionError",
     "Retriever",
     "Ranker",
+    "ContextComposer",
 ]
