@@ -14,8 +14,11 @@ from app.domain import (
     RetrievalCandidate,
     ScoreBreakdown,
     RankedCandidate,
+    RetrievalMode,
+    UsedMemory,
+    UsedMemorySource,
 )
-from app.services import Retriever, Ranker, ContextComposer
+from app.services import Retriever, Ranker, ContextComposer, RetrievalCoordinator, EmbeddingService
 
 
 class FakeRepository:
@@ -585,3 +588,279 @@ def test_composer_reason_generation_logic():
     _, um_bal = composer.compose_context([cand_bal])
     assert "Balanced relevance context" in um_bal[0].reason
     assert "(Score: 0.60)" in um_bal[0].reason
+
+
+# ── RetrievalCoordinator Tests ────────────────────────────────────────────────
+
+class MockEmbeddingService(EmbeddingService):
+    def __init__(self, vector: Optional[List[float]] = None, should_fail: bool = False) -> None:
+        self.vector = vector or [0.1] * 1536
+        self.should_fail = should_fail
+        self.called_text = None
+
+    async def generate_embedding(self, text: str) -> List[float]:
+        self.called_text = text
+        if self.should_fail:
+            raise RuntimeError("Fake embedding provider error")
+        return self.vector
+
+
+class MockRetriever:
+    def __init__(self, candidates: List[RetrievalCandidate], should_fail: bool = False) -> None:
+        self.candidates = candidates
+        self.should_fail = should_fail
+        self.called_args = {}
+
+    async def retrieve(
+        self,
+        tenant_id: str,
+        user_id: str,
+        query_text: str,
+        query_embedding: Optional[List[float]],
+        candidate_limit: int = 50,
+    ) -> List[RetrievalCandidate]:
+        self.called_args = {
+            "tenant_id": tenant_id,
+            "user_id": user_id,
+            "query_text": query_text,
+            "query_embedding": query_embedding,
+            "candidate_limit": candidate_limit,
+        }
+        if self.should_fail:
+            raise ValueError("Fake retriever validation error")
+        return self.candidates
+
+
+class MockRanker:
+    def __init__(self, ranked: List[RankedCandidate], should_fail: bool = False) -> None:
+        self.ranked = ranked
+        self.should_fail = should_fail
+        self.called_args = {}
+
+    def rank(self, candidates: List[RetrievalCandidate], now: datetime) -> List[RankedCandidate]:
+        self.called_args = {"candidates": candidates, "now": now}
+        if self.should_fail:
+            raise TypeError("Fake ranker validation error")
+        return self.ranked
+
+
+class MockContextComposer:
+    def __init__(self, context: str, used_memories: List[UsedMemory], should_fail: bool = False) -> None:
+        self.context = context
+        self.used_memories = used_memories
+        self.should_fail = should_fail
+        self.called_args = {}
+
+    def compose_context(self, candidates: List[RankedCandidate]) -> Tuple[str, List[UsedMemory]]:
+        self.called_args = {"candidates": candidates}
+        if self.should_fail:
+            raise IndexError("Fake composer budget error")
+        return self.context, self.used_memories
+
+
+@pytest.mark.anyio
+async def test_coordinator_temporary_chat_bypass():
+    embed_service = MockEmbeddingService()
+    retriever = MockRetriever([])
+    ranker = MockRanker([])
+    composer = MockContextComposer("context", [])
+
+    coordinator = RetrievalCoordinator(
+        embedding_service=embed_service,
+        retriever=retriever,
+        ranker=ranker,
+        context_composer=composer,
+    )
+
+    ctx, um, mode = await coordinator.retrieve_context(
+        tenant_id="tenant_x",
+        user_id="user_y",
+        query_text="bypass query",
+        temporary_chat=True,
+    )
+
+    assert ctx == ""
+    assert um == []
+    assert mode == RetrievalMode.NONE
+
+    # Verify no downstream component is called
+    assert embed_service.called_text is None
+    assert not retriever.called_args
+    assert not ranker.called_args
+    assert not composer.called_args
+
+
+@pytest.mark.anyio
+async def test_coordinator_hybrid_success():
+    embed_vector = [0.5] * 1536
+    embed_service = MockEmbeddingService(vector=embed_vector)
+
+    dummy_cand = RetrievalCandidate(memory=make_dummy_record("test"), cosine_similarity=0.9, matched_query_terms=1, total_unique_query_terms=1)
+    retriever = MockRetriever([dummy_cand])
+
+    dummy_ranked = RankedCandidate(
+        memory=dummy_cand.memory,
+        final_score=0.95,
+        score_breakdown=ScoreBreakdown(
+            semantic_score=0.9, keyword_score=0.9, importance_score=0.5,
+            recency_score=0.5, confidence_score=0.5, reinforcement_score=0.5
+        ),
+        rank=1,
+    )
+    ranker = MockRanker([dummy_ranked])
+
+    dummy_used = UsedMemory(
+        memory_id=dummy_cand.memory.id,
+        content="test",
+        memory_type=dummy_cand.memory.memory_type,
+        score=0.95,
+        reason="test reason",
+        score_breakdown=dummy_ranked.score_breakdown,
+        source=UsedMemorySource(kind="chat", excerpt=None),
+    )
+    composer = MockContextComposer("composed text", [dummy_used])
+
+    coordinator = RetrievalCoordinator(
+        embedding_service=embed_service,
+        retriever=retriever,
+        ranker=ranker,
+        context_composer=composer,
+    )
+
+    ctx, um, mode = await coordinator.retrieve_context(
+        tenant_id="tenant_a",
+        user_id="user_b",
+        query_text="normal query",
+        temporary_chat=False,
+    )
+
+    # 1. Verify returns
+    assert ctx == "composed text"
+    assert um == [dummy_used]
+    assert mode == RetrievalMode.HYBRID
+
+    # 2. Verify propagation
+    assert embed_service.called_text == "normal query"
+    assert retriever.called_args["query_embedding"] == embed_vector
+    assert retriever.called_args["tenant_id"] == "tenant_a"
+    assert retriever.called_args["user_id"] == "user_b"
+    assert retriever.called_args["query_text"] == "normal query"
+    assert ranker.called_args["candidates"] == [dummy_cand]
+    assert isinstance(ranker.called_args["now"], datetime)
+    assert ranker.called_args["now"].tzinfo == timezone.utc
+    assert composer.called_args["candidates"] == [dummy_ranked]
+
+
+@pytest.mark.anyio
+async def test_coordinator_fallback_on_embedding_exception():
+    embed_service = MockEmbeddingService(should_fail=True)
+
+    dummy_cand = RetrievalCandidate(memory=make_dummy_record("test"), cosine_similarity=None, matched_query_terms=1, total_unique_query_terms=1)
+    retriever = MockRetriever([dummy_cand])
+
+    dummy_ranked = RankedCandidate(
+        memory=dummy_cand.memory,
+        final_score=0.45,
+        score_breakdown=ScoreBreakdown(
+            semantic_score=0.0, keyword_score=0.9, importance_score=0.5,
+            recency_score=0.5, confidence_score=0.5, reinforcement_score=0.5
+        ),
+        rank=1,
+    )
+    ranker = MockRanker([dummy_ranked])
+    composer = MockContextComposer("fallback text", [])
+
+    coordinator = RetrievalCoordinator(
+        embedding_service=embed_service,
+        retriever=retriever,
+        ranker=ranker,
+        context_composer=composer,
+    )
+
+    ctx, um, mode = await coordinator.retrieve_context(
+        tenant_id="tenant_a",
+        user_id="user_b",
+        query_text="fail query",
+        temporary_chat=False,
+    )
+
+    # Verify fallback mode and outputs
+    assert ctx == "fallback text"
+    assert um == []
+    assert mode == RetrievalMode.FALLBACK
+
+    # Verify query_embedding=None was passed to Retriever
+    assert retriever.called_args["query_embedding"] is None
+    assert ranker.called_args["candidates"] == [dummy_cand]
+
+
+@pytest.mark.anyio
+async def test_coordinator_narrow_exception_propagation():
+    # Downstream exceptions should propagate and not be swallowed or converted to fallback.
+    embed_service = MockEmbeddingService()
+
+    # Case A: Retriever raises ValueError
+    retriever_fail = MockRetriever([], should_fail=True)
+    ranker = MockRanker([])
+    composer = MockContextComposer("context", [])
+    coordinator_retriever_fail = RetrievalCoordinator(embed_service, retriever_fail, ranker, composer)
+
+    with pytest.raises(ValueError, match="Fake retriever validation error"):
+        await coordinator_retriever_fail.retrieve_context("t", "u", "q")
+
+    # Case B: Ranker raises TypeError
+    retriever = MockRetriever([])
+    ranker_fail = MockRanker([], should_fail=True)
+    coordinator_ranker_fail = RetrievalCoordinator(embed_service, retriever, ranker_fail, composer)
+
+    with pytest.raises(TypeError, match="Fake ranker validation error"):
+        await coordinator_ranker_fail.retrieve_context("t", "u", "q")
+
+    # Case C: Composer raises IndexError
+    composer_fail = MockContextComposer("", [], should_fail=True)
+    coordinator_composer_fail = RetrievalCoordinator(embed_service, retriever, ranker, composer_fail)
+
+    with pytest.raises(IndexError, match="Fake composer budget error"):
+        await coordinator_composer_fail.retrieve_context("t", "u", "q")
+
+
+@pytest.mark.anyio
+async def test_coordinator_invalid_vector_dimension_propagates():
+    # If the embedding service returns an invalid dimension, it does not raise.
+    # The Coordinator must proceed to call Retriever. If Retriever/Repository raises a ValueError, it propagates.
+    invalid_vector = [0.1] * 100
+    embed_service = MockEmbeddingService(vector=invalid_vector)
+
+    class DimensionRejectingRetriever:
+        async def retrieve(self, tenant_id, user_id, query_text, query_embedding, candidate_limit=50):
+            if query_embedding is not None and len(query_embedding) != 1536:
+                raise ValueError("query_embedding must be exactly 1536 dimensions")
+            return []
+
+    retriever = DimensionRejectingRetriever()
+    ranker = MockRanker([])
+    composer = MockContextComposer("", [])
+
+    coordinator = RetrievalCoordinator(embed_service, retriever, ranker, composer)
+
+    with pytest.raises(ValueError, match="query_embedding must be exactly 1536 dimensions"):
+        await coordinator.retrieve_context("t", "u", "q")
+
+
+@pytest.mark.anyio
+async def test_coordinator_empty_results_preserve_modes():
+    # HYBRID with 0 results remains HYBRID
+    embed_service = MockEmbeddingService()
+    retriever = MockRetriever([])
+    ranker = MockRanker([])
+    composer = MockContextComposer("", [])
+
+    coordinator = RetrievalCoordinator(embed_service, retriever, ranker, composer)
+    _, _, mode_hybrid = await coordinator.retrieve_context("t", "u", "q")
+    assert mode_hybrid == RetrievalMode.HYBRID
+
+    # FALLBACK with 0 results remains FALLBACK
+    embed_fail = MockEmbeddingService(should_fail=True)
+    coordinator_fail = RetrievalCoordinator(embed_fail, retriever, ranker, composer)
+    _, _, mode_fallback = await coordinator_fail.retrieve_context("t", "u", "q")
+    assert mode_fallback == RetrievalMode.FALLBACK
