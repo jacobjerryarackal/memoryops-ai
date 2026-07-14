@@ -1,12 +1,15 @@
 import uuid
 from typing import List, Optional
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, field_validator
 
 from ..domain.enums import MemoryType, Sensitivity, PolicyDecision, RetrievalMode
 from ..domain.retrieval import UsedMemory
+from ..runtime import get_retrieval_coordinator
+from ..services.retrieval import RetrievalCoordinator
 
 router = APIRouter()
+
 
 
 class ChatRequest(BaseModel):
@@ -46,15 +49,27 @@ class ChatResponse(BaseModel):
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(
+    request: ChatRequest,
+    coordinator: RetrievalCoordinator = Depends(get_retrieval_coordinator),
+):
     # Dynamic per-request UUID string for trace_id boundary placeholder
     trace_id = f"trace-{uuid.uuid4()}"
+
+    # Execute read-path retrieval context through the coordinator
+    context, used_memories, retrieval_mode = await coordinator.retrieve_context(
+        tenant_id=request.tenant_id,
+        user_id=request.user_id,
+        query_text=request.message,
+        temporary_chat=request.temporary_chat,
+    )
+
     return ChatResponse(
         assistant_message="Understood.",
-        used_memories=[],
+        used_memories=used_memories,
         candidate_memories=[],
         audit_event_ids=[],
         temporary_chat=request.temporary_chat,
-        retrieval_mode=RetrievalMode.NONE,
+        retrieval_mode=retrieval_mode,
         trace_id=trace_id,
     )
