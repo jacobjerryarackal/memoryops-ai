@@ -450,3 +450,86 @@ def test_update_identity_immutability():
 
     asyncio.run(run())
 
+
+def test_search_candidates_flow():
+    async def run():
+        repo = InMemoryMemoryRepository()
+        tenant = "tenant_a"
+        user = "user_a"
+
+        # Helpers to create embeddings
+        e1 = [0.1] * 1536
+        e2 = [0.2] * 1536
+
+        # Create active matching records
+        r1 = await repo.create(MemoryRecord(
+            id=uuid4(), tenant_id=tenant, user_id=user, content="Rec 1",
+            memory_type=MemoryType.SEMANTIC, status=MemoryStatus.ACTIVE,
+            embedding=e1, initial_policy_decision=PolicyDecision.SAVE, initial_policy_reason="test"
+        ))
+
+        r2 = await repo.create(MemoryRecord(
+            id=uuid4(), tenant_id=tenant, user_id=user, content="Rec 2",
+            memory_type=MemoryType.SEMANTIC, status=MemoryStatus.ACTIVE,
+            embedding=e2, initial_policy_decision=PolicyDecision.SAVE, initial_policy_reason="test"
+        ))
+
+        # Create active record with embedding=None
+        r_none = await repo.create(MemoryRecord(
+            id=uuid4(), tenant_id=tenant, user_id=user, content="Rec None",
+            memory_type=MemoryType.SEMANTIC, status=MemoryStatus.ACTIVE,
+            embedding=None, initial_policy_decision=PolicyDecision.SAVE, initial_policy_reason="test"
+        ))
+
+        # Create non-active records (should be excluded)
+        for status in [MemoryStatus.PENDING, MemoryStatus.REJECTED, MemoryStatus.ARCHIVED, MemoryStatus.DELETED]:
+            now = datetime.now(timezone.utc)
+            await repo.create(MemoryRecord(
+                id=uuid4(), tenant_id=tenant, user_id=user, content=f"Rec {status.value}",
+                memory_type=MemoryType.SEMANTIC, status=status,
+                embedding=e1, initial_policy_decision=PolicyDecision.SAVE, initial_policy_reason="test",
+                archived_at=now if status == MemoryStatus.ARCHIVED else None,
+                deleted_at=now if status == MemoryStatus.DELETED else None
+            ))
+
+
+        # Create wrong scope records
+        await repo.create(MemoryRecord(
+            id=uuid4(), tenant_id="tenant_b", user_id=user, content="Rec wrong tenant",
+            memory_type=MemoryType.SEMANTIC, status=MemoryStatus.ACTIVE,
+            embedding=e1, initial_policy_decision=PolicyDecision.SAVE, initial_policy_reason="test"
+        ))
+        await repo.create(MemoryRecord(
+            id=uuid4(), tenant_id=tenant, user_id="user_b", content="Rec wrong user",
+            memory_type=MemoryType.SEMANTIC, status=MemoryStatus.ACTIVE,
+            embedding=e1, initial_policy_decision=PolicyDecision.SAVE, initial_policy_reason="test"
+        ))
+
+        # 1. Test Fallback/Non-semantic query: query_embedding = None
+        results_fallback = await repo.search_candidates(tenant, user, None, limit=10)
+        # Should include r1, r2, and r_none (all active in scope), but exclude the rest
+        assert len(results_fallback) == 3
+        # Should preserve similarity = None
+        for record, similarity in results_fallback:
+            assert similarity is None
+            assert record.status == MemoryStatus.ACTIVE
+            assert record.tenant_id == tenant
+            assert record.user_id == user
+
+        # 2. Test Semantic query: query_embedding = e1
+        results_semantic = await repo.search_candidates(tenant, user, e1, limit=10)
+        # Should exclude r_none because its embedding is None. Should include r1 and r2.
+        assert len(results_semantic) == 2
+        for record, similarity in results_semantic:
+            assert isinstance(similarity, float)
+            assert record.id != r_none.id
+
+        # 3. Test Invalid Limit
+        with pytest.raises(ValueError, match="limit must be >= 1"):
+            await repo.search_candidates(tenant, user, e1, limit=0)
+
+        # 4. Test Dimension Mismatch
+        with pytest.raises(ValueError, match="query_embedding must be exactly 1536 dimensions"):
+            await repo.search_candidates(tenant, user, [0.1] * 100, limit=10)
+
+    asyncio.run(run())
