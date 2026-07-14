@@ -4,7 +4,7 @@ from uuid import UUID
 from typing import Dict, List, Optional
 
 from ..domain.models import MemoryRecord
-from ..domain.enums import MemoryStatus
+from ..domain.enums import MemoryStatus, MemoryType
 from .base import MemoryRepository
 
 class InMemoryMemoryRepository(MemoryRepository):
@@ -52,6 +52,12 @@ class InMemoryMemoryRepository(MemoryRepository):
             if persisted.initial_policy_decision != record.initial_policy_decision or persisted.initial_policy_reason != record.initial_policy_reason:
                 raise ValueError("Immutable admission provenance: initial_policy_decision and initial_policy_reason cannot be altered.")
                 
+            # Verify immutable coordinates (ADR-006)
+            if persisted.memory_type != record.memory_type:
+                raise ValueError("Core coordinate mismatch: memory_type is immutable and cannot be altered.")
+            if persisted.identity_slot != record.identity_slot:
+                raise ValueError("Core coordinate mismatch: identity_slot is immutable and cannot be altered.")
+
             # Verify terminal logical deletion
             if persisted.status == MemoryStatus.DELETED:
                 raise ValueError("Terminal deletion: cannot update a logically deleted memory record.")
@@ -118,3 +124,29 @@ class InMemoryMemoryRepository(MemoryRepository):
             
             sliced = active_records[:limit]
             return [r.model_copy(deep=True) for r in sliced]
+
+    async def get_active_by_slot(
+        self,
+        tenant_id: str,
+        user_id: str,
+        memory_type: MemoryType,
+        identity_slot: str,
+    ) -> List[MemoryRecord]:
+        async with self._lock:
+            matching = [
+                r
+                for r in self._records.values()
+                if (r.tenant_id == tenant_id and
+                    r.user_id == user_id and
+                    r.memory_type == memory_type and
+                    r.identity_slot == identity_slot and
+                    r.status == MemoryStatus.ACTIVE)
+            ]
+            
+            # Stable deterministic sort: created_at DESC, then id ASC
+            matching.sort(key=lambda r: r.id)
+            matching.sort(key=lambda r: r.created_at, reverse=True)
+            
+            sliced = matching[:2]
+            return [r.model_copy(deep=True) for r in sliced]
+
