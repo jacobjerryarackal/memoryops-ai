@@ -20,6 +20,7 @@ The design spine is constrained by the following authoritative documents in orde
    * [ADR-004-observability.md](file:///d:/AI/memoryops-ai/infra/adr/ADR-004-observability.md) (telemetry and spans)
    * [ADR-005-deletion-guarantee.md](file:///d:/AI/memoryops-ai/infra/adr/ADR-005-deletion-guarantee.md) (logical active-only query boundaries)
    * [ADR-006-memory-identity-and-write-path-mutation.md](file:///d:/AI/memoryops-ai/infra/adr/ADR-006-memory-identity-and-write-path-mutation.md) (embedding invalidation invariants)
+   * [ADR-007-embedding-provider-and-model.md](file:///d:/AI/memoryops-ai/infra/adr/ADR-007-embedding-provider-and-model.md) (embedding provider/model specifications)
 4. **Reference Repository (Comparative Evidence):** `patibandlavenkatamanideep/memoryops-ai` source files, specifically [retriever.py](file:///d:/AI/memoryops-ai/tmp_manideep/services/api/app/services/retriever.py) and [ranker.py](file:///d:/AI/memoryops-ai/tmp_manideep/services/api/app/services/ranker.py). Manideep is comparative evidence only; local specifications remain authoritative.
 
 ---
@@ -160,12 +161,12 @@ $$\text{keyword\_score} = \frac{\text{matched\_query\_terms}}{\max(\text{total\_
 ## 6. Semantic Fallback Contract
 
 * **Bypassed / Disabled Retrieval:** If the request gateway sets `temporary_chat = True`, the read loop is bypassed, returning `retrieval_mode = "none"` with empty context and empty `used_memories`.
-* **Embedding Failure Fallback:** If query embedding generation raises an exception, the coordinator logs a fallback warning, sets `query_embedding = []`, and falls back to active-memory retrieval.
+* **Embedding Failure Fallback:** If query embedding generation raises an exception, the coordinator logs a fallback warning, sets `query_embedding = None` (in accordance with [ADR-007](file:///d:/AI/memoryops-ai/infra/adr/ADR-007-embedding-provider-and-model.md)), and falls back to active-memory retrieval.
 * **Retrieval Mode Outcome:**
   * Normal run: `retrieval_mode = "hybrid"`.
   * Degraded run: `retrieval_mode = "fallback"`.
 * **Signal values in Fallback:**
-  * When `query_embedding` is empty, candidates are retrieved based on active status, and `cosine_similarity` defaults to `0.0`, resulting in `semantic_score = 0.0`.
+  * When `query_embedding` is `None`, candidates are retrieved based on active status, and `cosine_similarity` defaults to `None` (resulting in `semantic_score = 0.0` inside the Ranker).
   * The fixed ranking weights (`0.35` semantic, etc.) remain unchanged. No weight redistribution occurs.
 
 ---
