@@ -33,6 +33,8 @@ The Policy Broker maintains a central **Slot Registry** mapping known `(memory_t
 
 The Extractor proposes the `memory_type` and `identity_slot` in the CandidateMemory payload, but has no authority over cardinality. The Policy Broker validates the slot and resolves cardinality from the registry. Cardinality is not stored on memory records, as it is authoritatively derived from the Slot Registry configuration.
 
+If a proposed slot is not registered in the Slot Registry, it represents an unknown slot. Because no authoritative cardinality semantics are available for that slot, the Policy Broker lacks the authority to authorize mutations (such as update or merge), resulting in a conservative fallback to `SAVE` (admitting a new memory). Unknown slots are thus ineligible for mutations in the Phase 1 MVP.
+
 ### 3. Exact Deterministic Matching Algebra
 Two memory records occupy the same identity slot if and only if:
 *   `tenant_id` matches exactly
@@ -47,7 +49,7 @@ During candidate evaluation, rules execute in the following priority order:
 1.  **Secret Detection:** Check patterns. If matched $\rightarrow$ `BLOCK` (redacted reason).
 2.  **Sensitivity Gate:** If `sensitivity == HIGH` $\rightarrow$ `PENDING_APPROVAL` (requires review).
 3.  **Slot Registry Check:** Validate proposed `(memory_type, identity_slot)` against the Slot Registry.
-4.  **Unknown Slot:** If slot is not registered $\rightarrow$ Conservatively fall back to `SAVE` (not authorized for updates).
+4.  **Unknown Slot:** If slot is not registered $\rightarrow$ Conservatively fall back to `SAVE` (mutation-ineligible due to unavailable cardinality semantics).
 5.  **Known Multi-Valued Slot:** If slot is registered as `multi` $\rightarrow$ `SAVE` (additive fact).
 6.  **Known Single-Valued Slot:** If slot is registered as `single`, execute a scoped query to locate active records occupying the slot.
 7.  **Single Slot Lookup Result:**
@@ -84,10 +86,15 @@ The existing fields (`decision`, `reason`, `target_memory_id`) are sufficient to
 
 ## Alternatives Considered
 
-*   **Exact Normalized-Content Identity:** Matching exact strings. Rejected because it fails to capture fact evolution or preference corrections.
-*   **Free-Form Extractor Keys:** Allowing the LLM to generate keys dynamically. Rejected because LLMs produce inconsistent keys (e.g. `explanation_style` vs `verbosity`), leading to duplicate slots.
-*   **Extractor-Owned Cardinality:** Storing cardinality as a candidate field. Rejected because the Extractor has no policy authority.
-*   **Embedding-Based Mutation Authority:** Using cosine thresholds to match and overwrite memories. Rejected because highly similar facts (e.g., `prefers Python` and `prefers FastAPI`) represent different technology items rather than updates.
+*   **Exact Normalized-Content Matching as Memory Identity:** Rejected because it fails to capture fact evolution, preference updates, or paraphrases.
+*   **Free-Form Canonical Keys as Authoritative Identity:** Rejected because LLMs produce inconsistent keys over time (e.g., `explanation_style` vs `verbosity`), causing slot duplication.
+*   **Identity Keys or Multiple-Key Overlap Matching:** Rejected because multi-key overlap matching introduces complex set-matching rules that are non-deterministic and difficult to validate.
+*   **Extractor-Owned Cardinality:** Rejected because the Extractor has no policy authority; allowing it to dictate cardinality violates the rule that Policy governs state.
+*   **Embedding Similarity or Similarity Thresholds as Mutation Authority:** Rejected because semantic similarity cannot distinguish between evolution (which requires an update) and complementary additions (which require a save).
+*   **LLM Disposition Classification for Phase 1 MVP:** Deferred because LLM classification introduces high latency, cost, and non-deterministic logic on the critical write path.
+*   **Write Service Semantic Merge or String-Concatenation Merge:** Rejected because the Write Service has no semantic understanding; string concatenation yields malformed natural language content.
+*   **Repository-Owned SAVE / UPDATE / MERGE Disposition Logic:** Rejected because the repository must remain a simple state persistence layer. Moving policy decisions to the repository violates the system boundary.
+*   **General Knowledge-Graph Subject/Predicate Identity Modeling for Phase 1 MVP:** Deferred because graph-based triple representation introduces high schema complexity that is unnecessary for the user-scoped memory slots of the initial MVP.
 
 ## Trade-offs
 
