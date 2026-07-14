@@ -35,6 +35,16 @@ The Extractor proposes the `memory_type` and `identity_slot` in the CandidateMem
 
 If a proposed slot is not registered in the Slot Registry, it represents an unknown slot. Because no authoritative cardinality semantics are available for that slot, the Policy Broker lacks the authority to authorize mutations (such as update or merge), resulting in a conservative fallback to `SAVE` (admitting a new memory). Unknown slots are thus ineligible for mutations in the Phase 1 MVP.
 
+#### PENDING Slot Occupancy and Approval-Time Revalidation
+PENDING records do not reserve active identity slots. The existing write-path occupancy query `get_active_by_slot` matches only `status == ACTIVE`. Therefore, a PENDING record is a governance proposal, not an active slot occupant, and multiple PENDING proposals may exist for the same registered SINGLE slot.
+
+Direct status flipping from PENDING to ACTIVE is not an approved governed transition. A future governed approval path must not activate a PENDING record without revalidation. Before a PENDING record can become active, the approval coordinator must revalidate:
+*   The record's `memory_type` and `identity_slot`
+*   Slot Registry membership and cardinality
+*   Current `ACTIVE` occupancy for the scoped slot
+
+If the slot is registered as `SINGLE` and is already occupied by an active record (which may have been written after the pending proposal was created), approval-time occupancy must be re-evaluated against the current state. Detailed approval execution semantics are owned by future HITL design/application coordination.
+
 ### 3. Exact Deterministic Matching Algebra
 Two memory records occupy the same identity slot if and only if:
 *   `tenant_id` matches exactly
@@ -61,8 +71,12 @@ During candidate evaluation, rules execute in the following priority order:
 An `UPDATE_EXISTING` decision is an executable mutation targeting exactly one active record.
 The candidate's content and metadata replace the target's fields.
 *   **Mutable Fields:** `content`, `confidence`, `importance`, `sensitivity`, `source_kind`, `source_conversation_id`, `source_excerpt`.
+*   **Derived-State Invalidation:** `embedding = None` when content is replaced.
 *   **Immutable Fields:** `id`, `tenant_id`, `user_id`, `memory_type`, `identity_slot`, `initial_policy_decision`, `initial_policy_reason`, `created_at`.
 *   **Provenance Integrity:** The target's genesis admission provenance (`initial_policy_decision`, `initial_policy_reason`) is immutable and remains unaltered. The mutation event is recorded separately in the audit log, and `updated_at` is refreshed.
+
+#### Embedding Derived-State Invalidation Invariant
+Embedding is derived state from memory content. Any content replacement invalidates the existing embedding. UPDATE_EXISTING must clear the target embedding atomically with content replacement. Regeneration is owned by a later embedding/indexing pipeline. Record mutation atomicity (content replacement + embedding invalidation) must occur in the same MemoryRecord update operation.
 
 ### 6. MERGE_WITH_EXISTING MVP Deferral
 `MERGE_WITH_EXISTING` is retained in the `PolicyDecision` enum contract but is **deferred from the Phase 1 MVP**. Because natural language merging requires synthesis, deterministic code cannot execute merges without model-assisted generation. Candidate facts that would trigger a merge fall back to `SAVE` (coexisting as separate active records) to prevent data corruption.
@@ -108,6 +122,9 @@ The existing fields (`decision`, `reason`, `target_memory_id`) are sufficient to
 3.  Initial admission provenance fields are immutable and must not be updated during mutation.
 4.  Updates to already logically deleted records must be rejected.
 5.  State transitions to `deleted` must occur only via `delete()`.
+6.  Embedding is derived state from memory content; target content mutation must clear the target embedding atomically.
+7.  PENDING records do not reserve active slot occupancy.
+8.  Transitioning from PENDING to ACTIVE requires revalidation of Slot Registry cardinality and current ACTIVE occupancy.
 
 ## Exit Strategy
 
