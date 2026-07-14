@@ -212,13 +212,26 @@ MemoryOps AI owns:
 - evaluation
 - observability
 
-MemoryOps AI does not own:
+MemoryOps AI is not a general-purpose chatbot product. However, the governed demonstration/runtime may use model inference where required to execute the complete memory loop:
 
-- chat interfaces
-- prompt engineering
-- authentication
-- LLM inference
-- workflow orchestration
+```text
+memory read
+→ context composition
+→ assistant turn
+→ candidate extraction
+→ policy decision
+→ governed memory write
+```
+
+The `/api/chat` endpoint remains the canonical combined turn boundary.
+
+MemoryOps AI does not directly own:
+
+- general chat interfaces
+- prompt engineering setups
+- authentication layers
+- general workflow orchestration
+- third-party LLM inference services (except to run its own memory loop internally)
 
 Those systems integrate with MemoryOps AI but remain independent.
 
