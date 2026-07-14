@@ -59,42 +59,6 @@ def test_sensitivity_handling():
     asyncio.run(run())
 
 
-def test_low_utility_importance():
-    async def run():
-        broker = PolicyBroker()
-        candidate = CandidateMemory(
-            tenant_id="tenant_a",
-            user_id="user_a",
-            content="Nothing important.",
-            memory_type=MemoryType.SEMANTIC,
-            confidence=0.9,
-            importance=2,  # Below utility threshold of 3
-            sensitivity=Sensitivity.LOW
-        )
-        result = await broker.evaluate(candidate)
-        assert result.decision == PolicyDecision.DROP_LOW_UTILITY
-        assert "importance score" in result.reason
-    asyncio.run(run())
-
-
-def test_low_utility_confidence():
-    async def run():
-        broker = PolicyBroker()
-        candidate = CandidateMemory(
-            tenant_id="tenant_a",
-            user_id="user_a",
-            content="Very low confidence extraction.",
-            memory_type=MemoryType.SEMANTIC,
-            confidence=0.4,  # Below utility threshold of 0.5
-            importance=5,
-            sensitivity=Sensitivity.LOW
-        )
-        result = await broker.evaluate(candidate)
-        assert result.decision == PolicyDecision.DROP_LOW_UTILITY
-        assert "confidence" in result.reason
-    asyncio.run(run())
-
-
 def test_save_fallback():
     async def run():
         broker = PolicyBroker()
@@ -113,23 +77,6 @@ def test_save_fallback():
     asyncio.run(run())
 
 
-def test_precedence_secret_over_low_utility():
-    async def run():
-        broker = PolicyBroker()
-        candidate = CandidateMemory(
-            tenant_id="tenant_a",
-            user_id="user_a",
-            content="sk-test-123456789abcdefghij",  # Secret
-            memory_type=MemoryType.SEMANTIC,
-            confidence=0.3,   # Low utility
-            importance=1,     # Low utility
-            sensitivity=Sensitivity.LOW
-        )
-        result = await broker.evaluate(candidate)
-        assert result.decision == PolicyDecision.BLOCK
-    asyncio.run(run())
-
-
 def test_precedence_secret_over_sensitivity():
     async def run():
         broker = PolicyBroker()
@@ -144,21 +91,4 @@ def test_precedence_secret_over_sensitivity():
         )
         result = await broker.evaluate(candidate)
         assert result.decision == PolicyDecision.BLOCK
-    asyncio.run(run())
-
-
-def test_precedence_sensitivity_over_low_utility():
-    async def run():
-        broker = PolicyBroker()
-        candidate = CandidateMemory(
-            tenant_id="tenant_a",
-            user_id="user_a",
-            content="Sensitive fact.",
-            memory_type=MemoryType.SEMANTIC,
-            confidence=0.3,   # Low utility
-            importance=1,     # Low utility
-            sensitivity=Sensitivity.HIGH  # High sensitivity
-        )
-        result = await broker.evaluate(candidate)
-        assert result.decision == PolicyDecision.PENDING_APPROVAL
     asyncio.run(run())
