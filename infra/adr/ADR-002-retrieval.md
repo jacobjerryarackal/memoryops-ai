@@ -22,7 +22,16 @@ Use hybrid retrieval combining semantic similarity and lexical matching.
 
 Candidate memories will be ranked using a deterministic weighted scoring model.
 
-The initial ranking model is:
+Before weighting is applied, all individual ranking signals are normalized to the range `[0,1]`. The normalization functions are defined as follows:
+
+*   **Semantic Score:** `semantic_score = clamp(cosine_similarity, 0, 1)` (where `cosine_similarity` represents the vector distance score).
+*   **Keyword Score:** `keyword_score = matched_query_terms / max(total_unique_query_terms, 1)` (lexical matching ratio).
+*   **Importance Score:** `importance_score = importance / 10` (scaling the database importance range of `0-10`).
+*   **Confidence Score:** `confidence_score = clamp(confidence, 0, 1)` (normalizing the extraction confidence probability).
+*   **Recency Score:** `recency_score = exp(-age_days / 30)` (exponential decay based on the time elapsed since `updated_at`, using a 30-day half-life scaling factor).
+*   **Reinforcement Score:** `reinforcement_score = 1 - exp(-reinforcement_count / 5)` (diminishing returns curve for repeated memory reinforcements).
+
+The final score is computed as:
 
     final_score =
         0.35 * semantic_score
