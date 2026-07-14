@@ -8,6 +8,7 @@ from .write import (
     UnsupportedDecisionError,
 )
 from .retrieval import Retriever, Ranker, ContextComposer
+from .embedding import EmbeddingService
 
 __all__ = [
     "AuditService",
@@ -21,4 +22,5 @@ __all__ = [
     "Retriever",
     "Ranker",
     "ContextComposer",
+    "EmbeddingService",
 ]
