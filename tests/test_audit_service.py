@@ -96,6 +96,7 @@ def test_deep_copy_protection():
 def test_block_and_drop_with_none_memory_id():
     async def run():
         service = InMemoryAuditService()
+        base_time = datetime.now(timezone.utc)
         
         # BLOCK
         block_event = AuditEvent(
@@ -103,17 +104,19 @@ def test_block_and_drop_with_none_memory_id():
             tenant_id="tenant_a",
             memory_id=None,
             action=AuditEventAction.MEMORY_BLOCKED,
-            reason="Secret pattern detected"
+            reason="Secret pattern detected",
+            created_at=base_time - timedelta(seconds=1)
         )
         await service.record(block_event)
 
-        # DROP
+        # DROP (newest, should sort first)
         drop_event = AuditEvent(
             id=uuid4(),
             tenant_id="tenant_a",
             memory_id=None,
             action=AuditEventAction.MEMORY_DROPPED,
-            reason="Low utility"
+            reason="Low utility",
+            created_at=base_time
         )
         await service.record(drop_event)
 
@@ -125,6 +128,7 @@ def test_block_and_drop_with_none_memory_id():
         assert logs[1].memory_id is None
 
     asyncio.run(run())
+
 
 
 def test_scoped_filtering():
