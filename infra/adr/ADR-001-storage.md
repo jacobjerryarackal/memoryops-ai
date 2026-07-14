@@ -80,6 +80,11 @@ At minimum:
 
 The in-memory repository must mirror the behavioral contract of the PostgreSQL implementation.
 
+The PostgreSQL database schema uses `VECTOR(1536)` as the fixed embedding dimension contract for the initial release. Dynamic vector dimensions are not supported. If the system shifts to a different embedding size, it represents a breaking contract change that requires:
+- A new database migration to alter the vector column size or add a new column.
+- Re-generating embeddings for all existing stored memory records.
+- Updating readiness and configuration validation logic to verify the new dimensions.
+
 ## Exit Strategy
 
 If pgvector becomes a retrieval bottleneck, a dedicated vector index may be introduced behind the storage boundary.
