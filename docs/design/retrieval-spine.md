@@ -263,31 +263,37 @@ The Context Composer formats the selected list of memory records into a single t
 
 The public API contract requires returning `used_memories[]` in the chat response. 
 * **Semantic Definition:** `used_memories` represents exactly the list of memories that were selected and injected into the context block.
-* **Reason Field (Phase 2 Design Clarification):** The Context Composer generates a deterministic string for `UsedMemory.reason` based on the dominant ranking signal:
-  * If `0.35 * semantic_score > 0.20 * keyword_score` (and semantic is not 0):
+* **Reason Field (Bounded Phase 2 Design Clarification):** The Context Composer generates a deterministic string for `UsedMemory.reason` based only on the weighted ranking contributions of `semantic_score` and `keyword_score`:
+  * `semantic_contribution = 0.35 * semantic_score`
+  * `keyword_contribution = 0.20 * keyword_score`
+  * If `semantic_contribution > keyword_contribution` and `semantic_contribution > 0.0`:
     `reason = f"Selected (Rank #{rank}): Semantically relevant to the query (Score: {final_score:.2f})."`
-  * If `0.20 * keyword_score > 0.35 * semantic_score` (and keyword is not 0):
+  * Else if `keyword_contribution > semantic_contribution` and `keyword_contribution > 0.0`:
     `reason = f"Selected (Rank #{rank}): Lexically relevant to the query (Score: {final_score:.2f})."`
-  * If signals are equal or in fallback/none mode:
+  * Else:
     `reason = f"Selected (Rank #{rank}): Balanced relevance context (Score: {final_score:.2f})."`
 
 ### Reason Examples
 
 #### Case 1 (Semantic-Dominant)
-* Rank = 1, final_score = 0.85, semantic = 0.9, keyword = 0.5.
+* Rank = 1, final_score = 0.85, semantic = 0.9 (contribution = 0.315), keyword = 0.5 (contribution = 0.10).
 * **Reason:** `"Selected (Rank #1): Semantically relevant to the query (Score: 0.85)."`
 
 #### Case 2 (Keyword-Dominant)
-* Rank = 2, final_score = 0.62, semantic = 0.3, keyword = 0.9.
+* Rank = 2, final_score = 0.62, semantic = 0.3 (contribution = 0.105), keyword = 0.9 (contribution = 0.18).
 * **Reason:** `"Selected (Rank #2): Lexically relevant to the query (Score: 0.62)."`
 
-#### Case 3 (Fallback Mode)
-* Rank = 1, final_score = 0.42, semantic = 0.0, keyword = 0.8.
-* **Reason:** `"Selected (Rank #1): Balanced relevance context (Score: 0.42)."`
+#### Case 3 (Fallback Mode / Lexical-Dominant)
+* Rank = 1, final_score = 0.42, semantic = 0.0 (contribution = 0.0), keyword = 0.8 (contribution = 0.16).
+* **Reason:** `"Selected (Rank #1): Lexically relevant to the query (Score: 0.42)."`
 
 #### Case 4 (Balanced Contribution)
-* Rank = 3, final_score = 0.60, semantic = 0.6, keyword = 0.6.
-* **Reason:** `"Selected (Rank #3): Balanced relevance context (Score: 0.60)."`
+* Rank = 3, final_score = 0.60, semantic = 0.6 (contribution = 0.21), keyword = 0.6 (contribution = 0.12).
+  * Wait, in this case `semantic_contribution = 0.21 > keyword_contribution = 0.12`. So it's actually semantically dominant!
+  * Let's create an actual balanced example:
+    * Rank = 3, final_score = 0.60, semantic = 0.4 (contribution = 0.14), keyword = 0.7 (contribution = 0.14).
+    * **Reason:** `"Selected (Rank #3): Balanced relevance context (Score: 0.60)."`
+
 
 ---
 
