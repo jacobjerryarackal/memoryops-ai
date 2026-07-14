@@ -40,3 +40,10 @@ class AuditEventAction(str, Enum):
     MEMORY_REJECTED = "memory_rejected"
     MEMORY_ARCHIVED = "memory_archived"
     MEMORY_DELETED = "memory_deleted"
+
+
+class RetrievalMode(str, Enum):
+    HYBRID = "hybrid"
+    FALLBACK = "fallback"
+    NONE = "none"
+
