@@ -340,7 +340,7 @@ The system should record:
 temporary_chat_skipped
 ```
 
-where required by the audit or operational contract.
+where required by the operational telemetry contract.
 
 ## What This Proves
 
@@ -459,15 +459,15 @@ curl -s \
 
 ## Expected Events
 
-The demonstration should expose lifecycle evidence similar to:
+The demonstration audit endpoint should expose lifecycle evidence containing only governance events:
 
 ```text
 memory_created
-memory_retrieved
 memory_blocked
-temporary_chat_skipped
 memory_deleted
 ```
+
+(Note: Operational telemetry events such as `memory_retrieved` and `temporary_chat_skipped` are captured separately in structured operational logs rather than the append-only audit stream.)
 
 The exact event order depends on request execution.
 
@@ -559,9 +559,9 @@ context composition
 
 ## What This Proves
 
-Tenant isolation occurs before ranking.
+Tenant isolation occurs before ranking. A highly relevant cross-tenant memory is still ineligible memory.
 
-A highly relevant cross-tenant memory is still ineligible memory.
+Note: This demo proves application/repository scope isolation. Database defense-in-depth through PostgreSQL Row-Level Security (RLS) is not claimed at this stage and is scheduled for Phase 4.
 
 ---
 
@@ -637,12 +637,14 @@ Use this explanation during the demonstration:
 
 The demonstration must not claim capabilities that are not implemented.
 
+Do not claim database-level Row-Level Security (RLS) or production-grade tenant isolation before Phase 4. Explicitly distinguish application/repository scope isolation from database defense-in-depth through RLS.
+
 Do not claim:
 
 - physical byte erasure
 - cryptographic deletion
 - production authentication
-- database Row-Level Security
+- database Row-Level Security (RLS)
 - background lifecycle workers
 - legal hold
 - consent-aware memory
