@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
 
-from ..domain.enums import RetrievalMode
+from ..domain.enums import RetrievalMode, MemoryStatus
 from ..domain.models import MemoryRecord
 from ..domain.retrieval import (
     RetrievalCandidate,
@@ -71,6 +71,14 @@ class Retriever:
 
         candidates = []
         for record, raw_similarity in repo_results:
+            # Defensive validation: drop violating records before they reach the Ranker
+            if (
+                record.tenant_id != tenant_id
+                or record.user_id != user_id
+                or record.status != MemoryStatus.ACTIVE
+            ):
+                continue
+
             # Lexical normalization of memory content
             normalized_mem_tokens = normalize_text(record.content)
             memory_terms = set(normalized_mem_tokens)
