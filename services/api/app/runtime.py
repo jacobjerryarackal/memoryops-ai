@@ -1,9 +1,11 @@
 from .repositories.memory import InMemoryMemoryRepository
 from .services.openai_embedding import OpenAIEmbeddingService
 from .services.retrieval import Retriever, Ranker, ContextComposer, RetrievalCoordinator
+from .services.retrieval_telemetry import StructuredRetrievalLogger
 
 # Single process-lifetime repository instance
 _shared_repository = InMemoryMemoryRepository()
+_shared_telemetry = StructuredRetrievalLogger()
 
 
 def get_memory_repository() -> InMemoryMemoryRepository:
@@ -21,4 +23,5 @@ def get_retrieval_coordinator() -> RetrievalCoordinator:
         retriever=retriever,
         ranker=ranker,
         context_composer=context_composer,
+        telemetry=_shared_telemetry,
     )
