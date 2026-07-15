@@ -15,6 +15,9 @@ from ..domain.retrieval import (
 )
 from ..repositories.base import MemoryRepository
 from .embedding import EmbeddingService
+import time
+import uuid
+from .retrieval_telemetry import RetrievalTelemetry, NoOpRetrievalTelemetry
 
 
 
@@ -255,11 +258,13 @@ class RetrievalCoordinator:
         retriever: Retriever,
         ranker: Ranker,
         context_composer: ContextComposer,
+        telemetry: Optional[RetrievalTelemetry] = None,
     ) -> None:
         self._embedding_service = embedding_service
         self._retriever = retriever
         self._ranker = ranker
         self._context_composer = context_composer
+        self._telemetry = telemetry if telemetry is not None else NoOpRetrievalTelemetry()
 
     async def retrieve_context(
         self,
@@ -267,8 +272,32 @@ class RetrievalCoordinator:
         user_id: str,
         query_text: str,
         temporary_chat: bool = False,
+        trace_id: Optional[str] = None,
     ) -> Tuple[str, List[UsedMemory], RetrievalMode]:
+        # Upstream trace_id wins; generate one if absent (exists only for non-gateway service callers)
+        if trace_id is None:
+            trace_id = f"trace-{uuid.uuid4()}"
+
         if temporary_chat:
+            telemetry_payload = {
+                "event": "memory_retrieval",
+                "trace_id": trace_id,
+                "tenant_id": tenant_id,
+                "user_id": user_id,
+                "retrieval_mode": RetrievalMode.NONE.value,
+                "candidate_count": 0,
+                "selected_memory_ids": [],
+                "score_breakdown": {},
+                "latency_ms": {
+                    "retrieve": 0.0,
+                    "rank": 0.0,
+                    "compose": 0.0
+                }
+            }
+            try:
+                self._telemetry.emit(telemetry_payload)
+            except Exception:
+                pass
             return "", [], RetrievalMode.NONE
 
         try:
@@ -278,16 +307,53 @@ class RetrievalCoordinator:
             query_embedding = None
             retrieval_mode = RetrievalMode.FALLBACK
 
+        # Measure retrieve latency
+        start_retrieve = time.perf_counter()
         candidates = await self._retriever.retrieve(
             tenant_id=tenant_id,
             user_id=user_id,
             query_text=query_text,
             query_embedding=query_embedding,
         )
+        retrieve_latency = (time.perf_counter() - start_retrieve) * 1000.0
 
+        # Measure rank latency
+        start_rank = time.perf_counter()
         now = datetime.now(timezone.utc)
         ranked_candidates = self._ranker.rank(candidates, now=now)
+        rank_latency = (time.perf_counter() - start_rank) * 1000.0
 
+        # Measure compose latency
+        start_compose = time.perf_counter()
         context, used_memories = self._context_composer.compose_context(ranked_candidates)
+        compose_latency = (time.perf_counter() - start_compose) * 1000.0
+
+        # Build score breakdown dictionary for selected candidates
+        score_breakdown = {
+            str(um.memory_id): um.score_breakdown.model_dump()
+            for um in used_memories
+        }
+
+        # Build telemetry event payload
+        telemetry_payload = {
+            "event": "memory_retrieval",
+            "trace_id": trace_id,
+            "tenant_id": tenant_id,
+            "user_id": user_id,
+            "retrieval_mode": retrieval_mode.value,
+            "candidate_count": len(candidates),
+            "selected_memory_ids": [str(um.memory_id) for um in used_memories],
+            "score_breakdown": score_breakdown,
+            "latency_ms": {
+                "retrieve": retrieve_latency,
+                "rank": rank_latency,
+                "compose": compose_latency
+            }
+        }
+
+        try:
+            self._telemetry.emit(telemetry_payload)
+        except Exception:
+            pass
 
         return context, used_memories, retrieval_mode
