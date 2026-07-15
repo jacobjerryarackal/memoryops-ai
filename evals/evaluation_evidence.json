@@ -1,0 +1,106 @@
+{
+  "schema_version": "1.0.0",
+  "dataset_version": "1.0.0",
+  "timestamp": "2026-07-15T11:50:21.789770+00:00",
+  "run_summary": {
+    "total_cases": 20,
+    "passed_cases": 20,
+    "failed_cases": 0,
+    "pass_rate": 1.0
+  },
+  "aggregate_metrics": {
+    "mean_precision_at_k": 1.0,
+    "mean_recall_at_k": 1.0,
+    "mean_reciprocal_rank": 1.0,
+    "mean_average_precision": 1.0,
+    "mean_lexical_token_overlap": 0.19934752747252746,
+    "policy_accuracy": 1.0,
+    "tenant_leakage_rate": 0.0,
+    "user_leakage_rate": 0.0,
+    "inactive_memory_leakage_rate": 0.0,
+    "deleted_memory_leakage_rate": 0.0,
+    "budget_overflow_rate": 0.0,
+    "fallback_success_rate": 1.0,
+    "deterministic_ordering_consistency": 1.0,
+    "temporary_chat_isolation_rate": 1.0
+  },
+  "latency_percentiles": {
+    "retrieve": {
+      "p50": 2.056799999991199,
+      "p90": 15.818100000615232,
+      "p99": 21.986799998558126
+    },
+    "rank": {
+      "p50": 0.09049999971466605,
+      "p90": 0.15280000116035808,
+      "p99": 0.32950000058917794
+    },
+    "compose": {
+      "p50": 0.05539999983739108,
+      "p90": 0.32360000113840215,
+      "p99": 14.133700000456884
+    },
+    "total": {
+      "p50": 2.1839000000909436,
+      "p90": 22.639900000285706,
+      "p99": 30.072900000959635
+    }
+  },
+  "case_failures": [],
+  "invariant_evidence": {
+    "INV-001": {
+      "status": "GREEN",
+      "verifying_cases": [
+        "TC-TEN-001"
+      ]
+    },
+    "INV-002": {
+      "status": "GREEN",
+      "verifying_cases": [
+        "TC-STA-001",
+        "TC-STA-002",
+        "TC-STA-003"
+      ]
+    },
+    "INV-003": {
+      "status": "GREEN",
+      "verifying_cases": [
+        "TC-STA-004"
+      ]
+    },
+    "INV-004": {
+      "status": "GREEN",
+      "verifying_cases": [
+        "TC-POL-001",
+        "TC-POL-002",
+        "TC-POL-003",
+        "TC-POL-004"
+      ]
+    },
+    "INV-008": {
+      "status": "GREEN",
+      "verifying_cases": [
+        "TC-RET-006"
+      ]
+    },
+    "INV-009": {
+      "status": "GREEN",
+      "verifying_cases": [
+        "TC-BUD-001",
+        "TC-BUD-002"
+      ]
+    },
+    "INV-010": {
+      "status": "GREEN",
+      "verifying_cases": [
+        "TC-TMP-001"
+      ]
+    },
+    "INV-011": {
+      "status": "GREEN",
+      "verifying_cases": [
+        "TC-ERR-001"
+      ]
+    }
+  }
+}
