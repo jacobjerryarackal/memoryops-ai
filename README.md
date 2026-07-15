@@ -644,7 +644,23 @@ The repository will only claim capabilities that are implemented and validated.
 
 ---
 
+## Developer & Agent Harness
+
+To reduce prompt repetition, this repository hosts local engineering harness files that govern developer and AI agent workflows:
+
+* **Engineering Rules:** [AGENTS.md](file:///d:/AI/memoryops-ai/AGENTS.md)
+* **Agentic SWE Kit Mapping:** [agentic-swe-kit-map.md](file:///d:/AI/memoryops-ai/docs/agentic-swe-kit-map.md)
+* **Failure Mode Mapping:** [failure-mode-map.md](file:///d:/AI/memoryops-ai/docs/failure-mode-map.md)
+* **Phase Gate Workflows:** [docs/phase-gates/](file:///d:/AI/memoryops-ai/docs/phase-gates/)
+  1. [PHASE GATE](file:///d:/AI/memoryops-ai/docs/phase-gates/phase_gate.md)
+  2. [BOUNDED IMPLEMENTATION](file:///d:/AI/memoryops-ai/docs/phase-gates/bounded_implementation.md)
+  3. [ARCHITECTURE REVIEW](file:///d:/AI/memoryops-ai/docs/phase-gates/architecture_review.md)
+  4. [REGRESSION GATE](file:///d:/AI/memoryops-ai/docs/phase-gates/regression_gate.md)
+
+---
+
 ## Design Documentation
+
 
 | Document | Purpose |
 |---|---|
