@@ -602,3 +602,56 @@ def test_audit_separation():
     assert "memory_retrieved" not in actions
     assert "memory_retrieval" not in actions
     assert "retrieval" not in actions
+
+
+@pytest.mark.anyio
+async def test_retriever_defensive_boundary_scope_and_active():
+    # Verify that Retriever defensively drops records with:
+    # - wrong tenant_id
+    # - wrong user_id
+    # - status != ACTIVE (e.g. DELETED)
+
+    # 1. Valid candidate
+    valid_record = make_dummy_record("Valid active memory")
+
+    # 2. Record with wrong tenant
+    wrong_tenant = make_dummy_record("Wrong tenant memory")
+    wrong_tenant.tenant_id = "tenant_other"
+
+    # 3. Record with wrong user
+    wrong_user = make_dummy_record("Wrong user memory")
+    wrong_user.user_id = "user_other"
+
+    # 4. Record with deleted status
+    deleted_rec = make_dummy_record("Deleted memory")
+    deleted_rec.status = MemoryStatus.DELETED
+
+    # 5. Record with pending status
+    pending_rec = make_dummy_record("Pending memory")
+    pending_rec.status = MemoryStatus.PENDING
+
+    # Setup fake repo results
+    repo_results = [
+        (valid_record, 0.9),
+        (wrong_tenant, 0.8),
+        (wrong_user, 0.7),
+        (deleted_rec, 0.6),
+        (pending_rec, 0.5),
+    ]
+
+    class FakeMemoryRepoForRetriever:
+        async def search_candidates(self, tenant_id, user_id, query_embedding, limit):
+            return repo_results
+
+    retriever = Retriever(FakeMemoryRepoForRetriever())
+
+    candidates = await retriever.retrieve(
+        tenant_id="tenant_a",
+        user_id="user_a",
+        query_text="memory",
+        query_embedding=[0.1]*1536
+    )
+
+    # Only the valid candidate should survive
+    assert len(candidates) == 1
+    assert candidates[0].memory.id == valid_record.id
