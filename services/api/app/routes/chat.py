@@ -62,6 +62,7 @@ async def chat(
         user_id=request.user_id,
         query_text=request.message,
         temporary_chat=request.temporary_chat,
+        trace_id=trace_id,
     )
 
     return ChatResponse(
