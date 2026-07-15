@@ -276,3 +276,16 @@ A task is complete only when:
 Write code that another engineer can understand six months from now.
 
 Repository quality is measured by clarity rather than code volume.
+
+---
+
+# Reusable Engineering Workflows
+
+Every task assigned to an agent in this repository must strictly execute the corresponding local workflow in `docs/phase-gates/`:
+
+1. **PHASE GATE** ([phase_gate.md](file:///d:/AI/memoryops-ai/docs/phase-gates/phase_gate.md)): Execute this *before* proposing or writing any code changes.
+2. **BOUNDED IMPLEMENTATION** ([bounded_implementation.md](file:///d:/AI/memoryops-ai/docs/phase-gates/bounded_implementation.md)): Execute this *during* the execution phase.
+3. **ARCHITECTURE REVIEW** ([architecture_review.md](file:///d:/AI/memoryops-ai/docs/phase-gates/architecture_review.md)): Execute this *after* implementation to verify contracts and look for scope drift.
+4. **REGRESSION GATE** ([regression_gate.md](file:///d:/AI/memoryops-ai/docs/phase-gates/regression_gate.md)): Execute this *before* declaring a task complete to verify baselines and generate an evidence report.
+
+Agent instructions should prioritize following these files to reduce prompt repetition.
