@@ -1,0 +1,515 @@
+{
+  "test_cases": [
+    {
+      "id": "TC-RET-001",
+      "category": "retrieval_relevance",
+      "difficulty": "easy",
+      "description": "Standard exact lexical match for a developer role query.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "Python engineer",
+      "seed_memories": [
+        {
+          "content": "Jacob is a Python engineer.",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 5,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        },
+        {
+          "content": "Alice prefers Rust development.",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 5,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": false
+        }
+      ],
+      "expected_retrieved_contents": [
+        "Jacob is a Python engineer."
+      ]
+    },
+    {
+      "id": "TC-RET-002",
+      "category": "retrieval_relevance",
+      "difficulty": "easy",
+      "description": "Verify case insensitivity and duplicate term handling.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "python PYTHON engineer",
+      "seed_memories": [
+        {
+          "content": "Jacob works as an engineer using Python.",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 6,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": [
+        "Jacob works as an engineer using Python."
+      ]
+    },
+    {
+      "id": "TC-RET-003",
+      "category": "retrieval_relevance",
+      "difficulty": "easy",
+      "description": "Verify punctuation cleaning splits alphanumeric terms.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "AI-engineer",
+      "seed_memories": [
+        {
+          "content": "Jacob is an AI engineer.",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 7,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": [
+        "Jacob is an AI engineer."
+      ]
+    },
+    {
+      "id": "TC-RET-004",
+      "category": "retrieval_relevance",
+      "difficulty": "medium",
+      "description": "Ensure no suffix-stemming matching applies (prefers vs preferred). Keyword score must be 0.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "What is my preferred language?",
+      "seed_memories": [
+        {
+          "content": "Jacob prefers Python.",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 5,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": [
+        "Jacob prefers Python."
+      ],
+      "expected_keyword_score": 0.0
+    },
+    {
+      "id": "TC-RET-005",
+      "category": "retrieval_relevance",
+      "difficulty": "medium",
+      "description": "Verify non-ASCII character matching matches Cafe and Munchen.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "München café",
+      "seed_memories": [
+        {
+          "content": "Café in München.",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 5,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": [
+        "Café in München."
+      ]
+    },
+    {
+      "id": "TC-RET-006",
+      "category": "retrieval_relevance",
+      "difficulty": "hard",
+      "description": "Verify deterministic tie-breaking (final_score DESC, created_at DESC, id ASC).",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "matching query",
+      "seed_memories": [
+        {
+          "content": "matching query first memory",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 5,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true,
+          "created_at": "2026-07-15T12:00:00Z",
+          "updated_at": "2026-07-15T12:00:00Z"
+        },
+        {
+          "content": "matching query second memory",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 5,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true,
+          "created_at": "2026-07-15T12:00:00Z",
+          "updated_at": "2026-07-15T12:00:00Z"
+        },
+        {
+          "content": "matching query older memory",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 5,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true,
+          "created_at": "2026-07-15T10:00:00Z",
+          "updated_at": "2026-07-15T10:00:00Z"
+        }
+      ],
+      "expected_retrieved_contents": [
+        "matching query first memory",
+        "matching query second memory",
+        "matching query older memory"
+      ]
+    },
+    {
+      "id": "TC-TEN-001",
+      "category": "cross_tenant_isolation",
+      "difficulty": "easy",
+      "description": "Ensure Tenant A cannot retrieve Tenant B memories.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "secret project info",
+      "seed_memories": [
+        {
+          "content": "Tenant B secret project info",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 8,
+          "confidence": 1.0,
+          "tenant_id": "tenant_b",
+          "user_id": "user_a",
+          "has_embedding": true
+        },
+        {
+          "content": "Tenant A secret project info",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 8,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": [
+        "Tenant A secret project info"
+      ]
+    },
+    {
+      "id": "TC-USR-001",
+      "category": "cross_user_isolation",
+      "difficulty": "easy",
+      "description": "Ensure User A cannot retrieve User B memories.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "personal journal",
+      "seed_memories": [
+        {
+          "content": "User B personal journal entry.",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 7,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_b",
+          "has_embedding": true
+        },
+        {
+          "content": "User A personal journal entry.",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 7,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": [
+        "User A personal journal entry."
+      ]
+    },
+    {
+      "id": "TC-STA-001",
+      "category": "status_exclusion",
+      "difficulty": "easy",
+      "description": "Ensure pending status memories are excluded.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "pending test info",
+      "seed_memories": [
+        {
+          "content": "pending test info",
+          "memory_type": "semantic",
+          "status": "pending",
+          "importance": 5,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": []
+    },
+    {
+      "id": "TC-STA-002",
+      "category": "status_exclusion",
+      "difficulty": "easy",
+      "description": "Ensure rejected status memories are excluded.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "rejected test info",
+      "seed_memories": [
+        {
+          "content": "rejected test info",
+          "memory_type": "semantic",
+          "status": "rejected",
+          "importance": 5,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": []
+    },
+    {
+      "id": "TC-STA-003",
+      "category": "status_exclusion",
+      "difficulty": "easy",
+      "description": "Ensure archived status memories are excluded.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "archived test info",
+      "seed_memories": [
+        {
+          "content": "archived test info",
+          "memory_type": "semantic",
+          "status": "archived",
+          "importance": 5,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": []
+    },
+    {
+      "id": "TC-STA-004",
+      "category": "status_exclusion",
+      "difficulty": "easy",
+      "description": "Ensure deleted status memories are excluded.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "deleted test info",
+      "seed_memories": [
+        {
+          "content": "deleted test info",
+          "memory_type": "semantic",
+          "status": "deleted",
+          "importance": 5,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": []
+    },
+    {
+      "id": "TC-BUD-001",
+      "category": "budget_stress",
+      "difficulty": "medium",
+      "description": "Verify memory count limit of 10 matches.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "target query",
+      "seed_memories": [
+        {"content": "target query 1", "tenant_id": "tenant_a", "user_id": "user_a", "importance": 10, "has_embedding": true},
+        {"content": "target query 2", "tenant_id": "tenant_a", "user_id": "user_a", "importance": 9, "has_embedding": true},
+        {"content": "target query 3", "tenant_id": "tenant_a", "user_id": "user_a", "importance": 8, "has_embedding": true},
+        {"content": "target query 4", "tenant_id": "tenant_a", "user_id": "user_a", "importance": 7, "has_embedding": true},
+        {"content": "target query 5", "tenant_id": "tenant_a", "user_id": "user_a", "importance": 6, "has_embedding": true},
+        {"content": "target query 6", "tenant_id": "tenant_a", "user_id": "user_a", "importance": 5, "has_embedding": true},
+        {"content": "target query 7", "tenant_id": "tenant_a", "user_id": "user_a", "importance": 4, "has_embedding": true},
+        {"content": "target query 8", "tenant_id": "tenant_a", "user_id": "user_a", "importance": 3, "has_embedding": true},
+        {"content": "target query 9", "tenant_id": "tenant_a", "user_id": "user_a", "importance": 2, "has_embedding": true},
+        {"content": "target query 10", "tenant_id": "tenant_a", "user_id": "user_a", "importance": 1, "has_embedding": true},
+        {"content": "target query 11", "tenant_id": "tenant_a", "user_id": "user_a", "importance": 1, "has_embedding": true}
+      ],
+      "expected_retrieved_contents": [
+        "target query 1", "target query 2", "target query 3", "target query 4", "target query 5",
+        "target query 6", "target query 7", "target query 8", "target query 9", "target query 10"
+      ]
+    },
+    {
+      "id": "TC-BUD-002",
+      "category": "budget_stress",
+      "difficulty": "hard",
+      "description": "Verify character limit skipping behavior (4000 character maximum limit).",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "limit query",
+      "seed_memories": [
+        {
+          "content": "Small content first.",
+          "importance": 10,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        },
+        {
+          "content": "Huge content that exceeds character budget. We make it 4100 characters long to trigger skip: Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.",
+          "importance": 9,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        },
+        {
+          "content": "Small content third.",
+          "importance": 8,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": [
+        "Small content first.",
+        "Small content third."
+      ]
+    },
+    {
+      "id": "TC-ERR-001",
+      "category": "embedding_fallback",
+      "difficulty": "medium",
+      "description": "Verify embedding service exception fallback degrades to lexical-only.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "fallback test",
+      "force_embedding_fail": true,
+      "seed_memories": [
+        {
+          "content": "fallback test memory",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 5,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": [
+        "fallback test memory"
+      ],
+      "expected_retrieval_mode": "fallback"
+    },
+    {
+      "id": "TC-TMP-001",
+      "category": "temporary_chat",
+      "difficulty": "easy",
+      "description": "Verify temporary chat flag bypasses retrieval entirely.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "temporary chat test",
+      "temporary_chat": true,
+      "seed_memories": [
+        {
+          "content": "temporary chat test",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 5,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": [],
+      "expected_retrieval_mode": "none"
+    },
+    {
+      "id": "TC-POL-001",
+      "category": "policy_validation",
+      "difficulty": "easy",
+      "description": "Verify Policy Broker blocks secrets (AWS keys).",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "save my credential: sk-test-123456789abcdefghij",
+      "seed_memories": [],
+      "expected_retrieved_contents": [],
+      "expected_policy_decision": "BLOCK"
+    },
+    {
+      "id": "TC-POL-002",
+      "category": "policy_validation",
+      "difficulty": "easy",
+      "description": "Verify Policy Broker saves valid semantic memory.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "Jacob is a software engineer.",
+      "seed_memories": [],
+      "expected_retrieved_contents": [],
+      "expected_policy_decision": "SAVE"
+    },
+    {
+      "id": "TC-POL-003",
+      "category": "policy_validation",
+      "difficulty": "medium",
+      "description": "Verify Policy Broker updates existing memory content in registered SINGLE slot.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "Jacob lives in Berlin now.",
+      "candidate_identity_slot": "residence",
+      "seed_memories": [
+        {
+          "content": "Jacob lives in London.",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 5,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "identity_slot": "residence"
+        }
+      ],
+      "expected_retrieved_contents": [],
+      "expected_policy_decision": "UPDATE_EXISTING"
+    },
+    {
+      "id": "TC-POL-004",
+      "category": "policy_validation",
+      "difficulty": "medium",
+      "description": "Verify Policy Broker blocks password credential assignment.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "password: SuperSecret123!",
+      "seed_memories": [],
+      "expected_retrieved_contents": [],
+      "expected_policy_decision": "BLOCK"
+    }
+  ]
+}
