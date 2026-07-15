@@ -279,7 +279,7 @@ Repository quality is measured by clarity rather than code volume.
 
 ---
 
-# Reusable Engineering Workflows
+# Reusable Engineering Workflows & Concern Gates
 
 Every task assigned to an agent in this repository must strictly execute the corresponding local workflow in `docs/phase-gates/`:
 
@@ -288,4 +288,13 @@ Every task assigned to an agent in this repository must strictly execute the cor
 3. **ARCHITECTURE REVIEW** ([architecture_review.md](file:///d:/AI/memoryops-ai/docs/phase-gates/architecture_review.md)): Execute this *after* implementation to verify contracts and look for scope drift.
 4. **REGRESSION GATE** ([regression_gate.md](file:///d:/AI/memoryops-ai/docs/phase-gates/regression_gate.md)): Execute this *before* declaring a task complete to verify baselines and generate an evidence report.
 
-Agent instructions should prioritize following these files to reduce prompt repetition.
+Agent instructions should prioritize following these files to reduce prompt repetition. Detailed index can be navigated in [docs/phase-gates/README.md](file:///d:/AI/memoryops-ai/docs/phase-gates/README.md).
+
+### Engineering Concern Gate Alignment Rules
+During the `PHASE GATE` and `ARCHITECTURE REVIEW` stages, the agent must:
+1. Identify which **Engineering Concern Gates** (documented as `phase-XX-*.md` in `docs/phase-gates/`) are affected by a proposed change.
+2. Re-review affected concern gates after implementation.
+3. Update gate evidence and status *only* when actual repository evidence changes.
+4. Never turn an unchecked gate condition into a checked condition based on intent or planned work.
+5. Never mark a gate status `GREEN` merely because tests pass. Real design and evidence are required.
+6. Treat local MemoryOps specifications, ADRs, and implementation files as authoritative over any comparative reference repositories.
