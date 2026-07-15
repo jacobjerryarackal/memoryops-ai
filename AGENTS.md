@@ -2,7 +2,18 @@
 
 # MemoryOps AI - AI Engineering Contract
 
-Version: 0.1
+Version: 0.2
+
+> [!NOTE]
+> **Operational Status of this Document:**
+> This document (`AGENTS.md`) is the repository-local operational entry point that AI engineering agents (such as Antigravity) must read and follow before planning or starting implementation. Do not assume automatic system-level loading or discovery of this document unless verified by local environment runtime evidence.
+
+---
+
+# Document Authority and Precedence
+
+1. **Local Architecture is Authoritative:** Local accepted architectural documents (ADRs, Product Blueprint, system overview, and retrieval spine specification) are the final source of truth for implementation.
+2. **External References are Comparative Only:** Any external repositories or frameworks—including Manideep's MemoryOps AI, the `agentic-swe-kit`, AI PR Review Agent patterns, and Hermes operator skills—serve purely as comparative architectural guidance. They must not create feature-parity, file-parity, roadmap-parity, or status-parity requirements.
 
 ---
 
