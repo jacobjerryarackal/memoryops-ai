@@ -646,16 +646,15 @@ The repository will only claim capabilities that are implemented and validated.
 
 ## Developer & Agent Harness
 
-To reduce prompt repetition, this repository hosts local engineering harness files that govern developer and AI agent workflows:
+To reduce prompt repetition, this repository hosts local engineering harness files that govern developer and AI agent workflows, and map production engineering concern gates:
 
 * **Engineering Rules:** [AGENTS.md](file:///d:/AI/memoryops-ai/AGENTS.md)
-* **Agentic SWE Kit Mapping:** [agentic-swe-kit-map.md](file:///d:/AI/memoryops-ai/docs/agentic-swe-kit-map.md)
-* **Failure Mode Mapping:** [failure-mode-map.md](file:///d:/AI/memoryops-ai/docs/failure-mode-map.md)
-* **Phase Gate Workflows:** [docs/phase-gates/](file:///d:/AI/memoryops-ai/docs/phase-gates/)
-  1. [PHASE GATE](file:///d:/AI/memoryops-ai/docs/phase-gates/phase_gate.md)
-  2. [BOUNDED IMPLEMENTATION](file:///d:/AI/memoryops-ai/docs/phase-gates/bounded_implementation.md)
-  3. [ARCHITECTURE REVIEW](file:///d:/AI/memoryops-ai/docs/phase-gates/architecture_review.md)
-  4. [REGRESSION GATE](file:///d:/AI/memoryops-ai/docs/phase-gates/regression_gate.md)
+* **Concern Gate Matrix & Workflows:** [docs/phase-gates/README.md](file:///d:/AI/memoryops-ai/docs/phase-gates/README.md)
+* **Agentic SWE Kit Mapping:** [agentic-swe-kit-map.md](file:///d:/AI/memoryops-ai/docs/agentic-swe-kit-map.md) *(Comparative guidance only)*
+* **Failure Mode Mapping:** [failure-mode-map.md](file:///d:/AI/memoryops-ai/docs/failure-mode-map.md) *(Mitigations and test evidence)*
+
+> [!NOTE]
+> External agentic engineering frameworks (e.g., agentic-swe-kit, Hermes, AI PR review automation) are referenced for comparative architectural guidance. MemoryOps AI uses a native repository-local harness for all active agent guidance and validation checks.
 
 ---
 
