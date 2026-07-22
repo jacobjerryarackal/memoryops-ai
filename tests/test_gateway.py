@@ -169,9 +169,10 @@ def test_production_get_retrieval_coordinator_missing_key(monkeypatch):
     # Ensure OPENAI_API_KEY is not in environment
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-    # Requesting the production dependency should raise ValueError (Option B lazy evaluation check)
-    with pytest.raises(ValueError, match="API key must be provided"):
-        get_retrieval_coordinator()
+    # Requesting the production dependency should resolve successfully without throwing
+    coordinator = get_retrieval_coordinator()
+    assert coordinator is not None
+    assert coordinator._embedding_service._api_key is None
 
 
 @pytest.mark.anyio

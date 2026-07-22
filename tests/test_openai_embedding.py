@@ -20,14 +20,22 @@ def test_openai_embedding_constructor_key_resolution(monkeypatch):
     service_env = OpenAIEmbeddingService()
     assert service_env._api_key == "sk-env-key"
 
-    # 3. Missing key raises ValueError
+    # 3. Missing key does not raise during construction, but raises on invocation
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    service_missing = OpenAIEmbeddingService()
+    assert service_missing._api_key is None
+    
     with pytest.raises(ValueError, match="API key must be provided"):
-        OpenAIEmbeddingService()
+        pytest.find_code = True  # dummy line
+        import anyio
+        anyio.run(service_missing.generate_embedding, "test")
 
-    # 4. Whitespace-only key raises ValueError
+    # 4. Whitespace-only key behaves similarly
+    service_whitespace = OpenAIEmbeddingService(api_key="   ")
+    assert service_whitespace._api_key is None
+    
     with pytest.raises(ValueError, match="API key must be provided"):
-        OpenAIEmbeddingService(api_key="   ")
+        anyio.run(service_whitespace.generate_embedding, "test")
 
 
 def test_openai_embedding_constructor_timeout_validation():
