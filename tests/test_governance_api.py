@@ -228,3 +228,28 @@ def test_api_audit_and_metrics():
     resp_metrics = client.get(f"/api/metrics?tenant_id={tenant}")
     assert resp_metrics.status_code == 200
     assert resp_metrics.json()["audit_events"] == 1
+
+
+def test_healthz_and_readyz(monkeypatch):
+    # 1. Test /healthz
+    resp = client.get("/healthz")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert "uptime_seconds" in data
+
+    # 2. Test /readyz without key
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    resp_ready = client.get("/readyz")
+    assert resp_ready.status_code == 200
+    data_ready = resp_ready.json()
+    assert data_ready["ready"] is False
+    assert data_ready["embeddings_provider"] == "unconfigured"
+
+    # 3. Test /readyz with key
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    resp_ready_key = client.get("/readyz")
+    assert resp_ready_key.status_code == 200
+    data_ready_key = resp_ready_key.json()
+    assert data_ready_key["ready"] is True
+    assert data_ready_key["embeddings_provider"] == "ready"
