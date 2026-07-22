@@ -6,6 +6,11 @@ from typing import List, Optional
 from .embedding import EmbeddingService
 
 
+import logging
+
+logger = logging.getLogger("app.services.openai_embedding")
+
+
 class OpenAIEmbeddingService(EmbeddingService):
     """
     Concrete production implementation of EmbeddingService utilizing
@@ -19,13 +24,16 @@ class OpenAIEmbeddingService(EmbeddingService):
         client: Optional[httpx.AsyncClient] = None,
         timeout_seconds: float = 10.0,
     ) -> None:
-        # Validate API Key
+        # Validate API Key lazily
         resolved_key = api_key or os.environ.get("OPENAI_API_KEY")
         if not resolved_key or not resolved_key.strip():
-            raise ValueError(
-                "A valid, non-empty OpenAI API key must be provided or configured in the environment."
+            logger.warning(
+                "OPENAI_API_KEY is not configured in the environment. "
+                "Semantic embeddings are disabled; falling back to offline lexical retrieval mode."
             )
-        self._api_key = resolved_key.strip()
+            self._api_key = None
+        else:
+            self._api_key = resolved_key.strip()
 
         # Validate Timeout
         if not isinstance(timeout_seconds, (int, float)) or isinstance(timeout_seconds, bool):
@@ -40,6 +48,11 @@ class OpenAIEmbeddingService(EmbeddingService):
         # Validate input contract
         if not text or not text.strip():
             raise ValueError("text input cannot be empty or whitespace-only")
+
+        if not self._api_key:
+            raise ValueError(
+                "A valid, non-empty OpenAI API key must be provided or configured in the environment."
+            )
 
         url = "https://api.openai.com/v1/embeddings"
         headers = {
