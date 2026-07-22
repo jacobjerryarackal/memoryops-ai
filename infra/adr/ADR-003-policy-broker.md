@@ -102,9 +102,11 @@ Every decision must produce an audit event containing a human-readable reason.
 
 The Policy Broker interface must remain independent from the extraction implementation.
 
+Content-changing governance updates (such as manual `PATCH` operations) must also run their proposed content through the Policy Broker's safety validation (specifically deterministic secret blocking) before persistence.
+
 ## Invariants
 
-1. No candidate memory may reach persistent storage without a policy decision.
+1. No candidate memory or manual content-changing update may reach persistent storage without a policy/safety decision.
 2. Deterministic blocking rules cannot be overridden by an LLM.
 3. Blocked secrets must never be persisted as memories.
 4. Pending memories must not be retrievable.
