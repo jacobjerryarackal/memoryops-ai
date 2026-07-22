@@ -53,12 +53,15 @@ export default function Home() {
     setGovLoading(true);
     setActionError(null);
     try {
-      // 1. Fetch metrics
-      const fetchedMetrics = await api.getMetrics(tId);
-      setMetrics(fetchedMetrics);
+      // 1. Verify backend health using the documented healthz endpoint
+      await api.checkHealth();
       setConnectionStatus("connected");
 
-      // 2. Fetch memories based on filters
+      // 2. Fetch metrics
+      const fetchedMetrics = await api.getMetrics(tId);
+      setMetrics(fetchedMetrics);
+
+      // 3. Fetch memories based on filters
       const fetchedMems = await api.listMemories(
         tId,
         uId,
@@ -67,7 +70,7 @@ export default function Home() {
       );
       setMemories(fetchedMems);
 
-      // 3. Fetch audit logs (last 50)
+      // 4. Fetch audit logs (last 50)
       const fetchedAudits = await api.listAudit(tId, undefined, undefined, 50);
       setAuditLogs(fetchedAudits);
     } catch (err: any) {
