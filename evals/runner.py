@@ -132,7 +132,7 @@ async def run_evaluation():
     invariant_status = {inv: "FAILED" for inv in invariant_verifying_cases}
 
     print("=" * 100)
-    print(f"MemoryOps AI — Phase 3 Programmatic Quality Evaluation Suite ({total_cases} Scenarios)")
+    print(f"MemoryOps AI — Programmatic Quality Evaluation Suite ({total_cases} Scenarios)")
     print("=" * 100)
 
     for case in test_cases:
