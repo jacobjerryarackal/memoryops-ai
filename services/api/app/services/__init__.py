@@ -10,6 +10,14 @@ from .write import (
 from .retrieval import Retriever, Ranker, ContextComposer, RetrievalCoordinator
 from .embedding import EmbeddingService
 from .openai_embedding import OpenAIEmbeddingService
+from .governance import (
+    GovernanceService,
+    GovernanceError,
+    GovernanceTargetUnavailableError,
+    GovernanceInvalidTransitionError,
+    GovernanceValidationError,
+    GovernancePolicyBlockedError,
+)
 
 __all__ = [
     "AuditService",
@@ -26,4 +34,10 @@ __all__ = [
     "EmbeddingService",
     "RetrievalCoordinator",
     "OpenAIEmbeddingService",
+    "GovernanceService",
+    "GovernanceError",
+    "GovernanceTargetUnavailableError",
+    "GovernanceInvalidTransitionError",
+    "GovernanceValidationError",
+    "GovernancePolicyBlockedError",
 ]
