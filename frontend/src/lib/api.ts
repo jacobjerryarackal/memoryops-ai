@@ -234,4 +234,8 @@ export const api = {
   async getMetrics(tenantId: string): Promise<TenantMetrics> {
     return request<TenantMetrics>(`/api/metrics?tenant_id=${tenantId}`);
   },
+
+  async checkHealth(): Promise<{ status: string; version: string; uptime_seconds: number }> {
+    return request<{ status: string; version: string; uptime_seconds: number }>("/healthz");
+  },
 };
