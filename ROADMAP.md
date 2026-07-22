@@ -19,19 +19,14 @@ The platform progresses through the following gated milestones:
 
 | Engineering Phase | Scope | Release Version |
 |---|---|---|
-| **Phase 0** | Design spine: product definition, architecture, security, governance, ADRs, schema, API contracts | **v0.1.0** |
-| **Phase 1** | Core write path: gateway → extractor → policy broker → write service → repository → audit | **v0.2.0** |
-| **Phase 2** | Read path: retriever → ranker → context composer | **v0.3.0** |
-| **Phase 3** | Governance control plane: approve, reject, edit, archive, delete, audit | **v0.4.0** |
-| **Phase 4** | Production depth: pgvector, tenant isolation, evaluations, observability | **v0.5.0** |
-| **Phase 5** | Background intelligence: decay, archive, deletion verification, reflection | **v0.6.0** |
-| **Phase 6** | Deletion compaction and vector purge verification | **v0.7.0** |
-| **Phase 7** | Worker runtime and scheduled lifecycle orchestration | **v0.8.0** |
-| **Phase 8** | Public results dashboard and evidence explorer | **v0.9.0** |
-| **Phase 9** | Retention, legal hold, and consent-aware memory | **v0.10.0** |
-| **Phase 10** | SDK and integration examples | **v0.11.0** |
-| **Phase 11** | Interactive playground and hosted demo | **v0.12.0** |
-| **Phase 12** | Production hardening and stable governed runtime | **v1.0.0** |
+| **Phase 0** | Design spine: product definition, architecture, security, governance, ADRs, schema, API contracts | **v0.1.0** (Done) |
+| **Phase 1** | Core write path: gateway → extractor → policy broker → write service → repository → audit | **v0.2.0** (Done) |
+| **Phase 2** | Read path: retriever → ranker → context composer | **v0.3.0** (Done) |
+| **Phase 3** | Governance control plane backend and API endpoints | **v0.4.0** (Done) |
+| **Phase 4** | Unified Interactive Frontend (Next.js): chat UI, review queue, metrics dashboard, audit explorer | **v0.5.0** |
+| **Phase 5** | Production Persistence & Observability Depth: pgvector, PostgreSQL storage, isolation verification | **v0.6.0** |
+| **Phase 6** | Advanced Background Lifecycle & Compaction: workers, decay, reflection, physical compaction | **v0.7.0** |
+| **Phase 7** | Production Hardening, Client SDK, and Stable governed release | **v1.0.0** |
 
 ---
 
@@ -102,91 +97,69 @@ Introduce administrative capabilities and lifecycle controls to allow operators 
 
 ---
 
-# Phase 4 — Production Depth (v0.5.0)
+# Phase 4 — Unified Interactive Frontend (v0.5.0)
 
 ## Goal
-Incorporate pgvector persistence, database-level tenant isolation, and automated evaluation metrics.
+Deliver a fully interactive Next.js web application implementing the complete user and operator control plane.
 
 ## Deliverables
-- Production PostgreSQL storage repository with pgvector indexes.
-- Tenant isolation verification tests.
-- Evaluation suite for retrieval relevance and policy correctness.
-- OpenTelemetry integration and tracing.
+- Next.js application structure initialized.
+- **Chat Interface**: Interactive chat to converse with the bot, showing the read path `used_memories` and write path `candidate_memories` with automated policy decisions.
+- **Governance Dashboard & Review Queue**: Interface for administrators to approve/reject pending memories, archive or update active memories, and trigger logical deletions.
+- **Audit Log & Evidence Explorer**: View and query the append-only audit stream and provenance timeline for any record.
+- **Metrics Panel**: Graphical charts for tenant memory status distribution, audit action counts, and system metrics.
 
 ## Exit Criteria
-- Vector-based semantic search executes in database.
-- Automated tests verify tenant isolation at the repository boundary.
+- Users and administrators can execute chat, review, deletion, and audit verification actions in a single visual interface connected to the FastAPI backend.
 
 ---
 
-# Phase 5 — Background Intelligence (v0.6.0)
+# Phase 5 — Production Persistence & Observability Depth (v0.6.0)
 
 ## Goal
-Implement background lifecycle operations such as memory decay, reflection, and conflict resolution.
+Replace the in-memory repository with production PostgreSQL and pgvector storage, implement transaction-safe writes, database-level tenant isolation, and operational observability.
 
 ## Deliverables
-- Background lifecycle worker orchestration.
-- Memory decay algorithms.
-- Conflict detection and merge proposals.
+- Production PostgreSQL storage repository with native pgvector index support.
+- Transactional mutation-plus-audit atomicity (`BEGIN ... COMMIT` in write/governance service).
+- Database-level tenant isolation validation suite.
+- OpenTelemetry tracing and structured execution logs.
 
 ## Exit Criteria
-- Memory decay and reflection proposals run asynchronously without interrupting chat paths.
+- Semantic vector similarity search executes natively in the database.
+- Repository tests verify 100% tenant isolation at the database boundary.
 
 ---
 
-# Phase 6 — Deletion Compaction (v0.7.0)
+# Phase 6 — Advanced Background Lifecycle & Compaction (v0.7.0)
 
 ## Goal
-Implement physical content and vector purge compaction for soft-deleted records.
+Build background workers and schedules for decay, reflection, retention, and physical deletion compaction.
 
 ## Deliverables
-- Compaction runner that purges content and vectors for deleted rows.
-- Preservation of content-free deletion tombstones.
+- Background lifecycle worker daemon runtime and scheduled task execution.
+- Memory decay algorithms and conflict-resolution reflections.
+- Physical deletion compaction (wiping deleted content while preserving tombstone footprint).
+- Retention windows, legal holds, and consent withdrawal enforcement.
 
 ## Exit Criteria
-- Deleted memory content is cleared from disk/indexes while preserving the audit footprint.
+- Background compaction successfully clears soft-deleted record values from disk/indexes without breaking audit timelines.
+- Decay and reflection execute asynchronously without interrupting chat latency.
 
 ---
 
-# Phase 7 — Worker Runtime (v0.8.0)
+# Phase 7 — Production Hardening & Release (v1.0.0)
 
 ## Goal
-Ensure operational stability, locking, and scheduling of background jobs.
+Deliver public release assets, client SDK, security audits, and stable release hardening.
 
----
+## Deliverables
+- Typed Client SDK for simple third-party application integration.
+- Penetration testing and secret verification reports.
+- Performance profiling and stable v1.0.0 release.
 
-# Phase 8 — Results Dashboard (v0.9.0)
-
-## Goal
-Provide a read-only monitoring interface to view system metrics and evidence.
-
----
-
-# Phase 9 — Retention and Consent (v0.10.0)
-
-## Goal
-Integrate retention windows, consent withdrawal tracking, and legal holds.
-
----
-
-# Phase 10 — SDK and Integrations (v0.11.0)
-
-## Goal
-Provide a typed client SDK for simple third-party integration.
-
----
-
-# Phase 11 — Interactive Playground (v0.12.0)
-
-## Goal
-Deploy a web interface for developers to test the complete memory loop.
-
----
-
-# Phase 12 — Production Hardening (v1.0.0)
-
-## Goal
-Execute stable release validation, penetration testing, and performance benchmarking.
+## Exit Criteria
+- The system achieves stable performance under target load with zero-trust security clearance.
 
 ---
 
