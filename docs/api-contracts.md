@@ -439,6 +439,10 @@ A deleted memory cannot be restored through `PATCH`.
 
 Attempts to update a deleted memory return `404`.
 
+## Policy Gating
+
+Content-changing update requests must be evaluated by the Policy Broker's safety validation (specifically deterministic secret blocking). If the proposed content contains secrets or credentials, the update is blocked, the record is not modified, and the endpoint returns a `400 Bad Request` with error code `POLICY_BLOCKED`.
+
 ## Response
 
 Returns the updated `MemoryRecord`.
@@ -637,6 +641,19 @@ Initial error codes may include:
 - `POLICY_BLOCKED`
 - `STORAGE_UNAVAILABLE`
 - `INTERNAL_ERROR`
+
+## Error Code Mapping
+
+The following table defines the relationship between HTTP response statuses and specific API error codes:
+
+| HTTP Status | API Error Code | Description / Usage Scenario |
+| :--- | :--- | :--- |
+| `400 Bad Request` | `VALIDATION_ERROR` | Request payload validation fails, or immutable coordinates (`identity_slot`, `memory_type`) are modified. |
+| `400 Bad Request` | `INVALID_LIFECYCLE_TRANSITION` | Attempting an invalid memory status transition (e.g. `archived` to `pending`). |
+| `400 Bad Request` | `POLICY_BLOCKED` | A content-changing `PATCH` or chat message fails safety validation (e.g., contains a secret or violates policy). |
+| `404 Not Found` | `MEMORY_NOT_FOUND` | Memory ID does not exist, scope does not match, or updating a terminal `deleted` memory. |
+| `500 Internal Server Error` | `INTERNAL_ERROR` | System errors, execution failures, or audit log persistence failures. |
+| `503 Service Unavailable` | `STORAGE_UNAVAILABLE` | Database or underlying persistence layer is unavailable. |
 
 Error responses must not expose:
 
