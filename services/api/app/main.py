@@ -1,10 +1,24 @@
 import os
 import time
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from .routes.chat import router as chat_router
 from .routes.governance import router as governance_router
+from .repositories.postgres_connection import db_manager
 
-app = FastAPI(title="MemoryOps AI Gateway API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Only initialize postgres pool if configured to run with postgres
+    db_type = os.environ.get("DATABASE_TYPE", "memory").strip().lower()
+    if db_type == "postgres":
+        await db_manager.initialize()
+    yield
+    if db_type == "postgres":
+        await db_manager.close()
+
+
+app = FastAPI(title="MemoryOps AI Gateway API", lifespan=lifespan)
 
 START_TIME = time.time()
 
