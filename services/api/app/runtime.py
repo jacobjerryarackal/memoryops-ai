@@ -1,5 +1,5 @@
 from .repositories.memory import InMemoryMemoryRepository
-from .services.openai_embedding import OpenAIEmbeddingService
+from .services.embedding_factory import get_embedding_service
 from .services.retrieval import Retriever, Ranker, ContextComposer, RetrievalCoordinator
 from .services.retrieval_telemetry import StructuredRetrievalLogger
 from .services.audit import InMemoryAuditService
@@ -31,7 +31,7 @@ def get_governance_service() -> GovernanceService:
 
 def get_retrieval_coordinator() -> RetrievalCoordinator:
     # Lazily construct the coordinator dependencies when requested
-    embedding_service = OpenAIEmbeddingService()
+    embedding_service = get_embedding_service()
     retriever = Retriever(_shared_repository)
     ranker = Ranker()
     context_composer = ContextComposer()
