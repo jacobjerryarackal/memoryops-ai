@@ -78,3 +78,20 @@ def test_provider_runtime_failure_fallback_retrieval(monkeypatch, caplog):
     assert resp.status_code == 200
     data = resp.json()
     assert data["retrieval_mode"] == "fallback"
+
+
+def test_explicit_fallback_provider_retrieval(monkeypatch):
+    # Set EMBEDDING_PROVIDER = fallback
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "fallback")
+
+    payload = {
+        "tenant_id": "tenant_fallback_test",
+        "user_id": "user_fallback_test",
+        "message": "Verify explicit fallback provider works",
+        "temporary_chat": False
+    }
+
+    resp = client.post("/api/chat", json=payload)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["retrieval_mode"] == "fallback"
