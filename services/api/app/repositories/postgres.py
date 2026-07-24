@@ -6,7 +6,8 @@ import asyncio
 import threading
 from datetime import datetime, timezone
 from uuid import UUID
-from typing import List, Optional, Tuple, Dict, Any
+from typing import List, Optional, Tuple, Dict, Any, AsyncIterator
+from contextlib import asynccontextmanager
 import asyncpg
 
 from ..domain.models import MemoryRecord, AuditEvent
@@ -14,6 +15,7 @@ from ..domain.enums import MemoryStatus, MemoryType, Sensitivity, PolicyDecision
 from .base import MemoryRepository
 from ..services.audit import AuditService
 from .postgres_connection import db_manager
+from .transactions import db_tx_conn
 
 logger = logging.getLogger("app.repositories.postgres")
 
@@ -82,6 +84,21 @@ async def ensure_active_pool() -> None:
             db_manager.pool = None
     if db_manager.pool is None:
         await db_manager.initialize()
+
+
+@asynccontextmanager
+async def get_connection() -> AsyncIterator[asyncpg.Connection]:
+    """
+    Yields the active transaction-bound connection if present in the context.
+    Otherwise, temporarily acquires one from the pool.
+    """
+    conn = db_tx_conn.get()
+    if conn is not None:
+        yield conn
+    else:
+        await ensure_active_pool()
+        async with db_manager.pool.acquire() as conn_acquired:
+            yield conn_acquired
 
 
 class PostgresDictProxy(dict):
@@ -235,10 +252,8 @@ class PostgreSQLMemoryRepository(MemoryRepository):
         self._records = PostgresDictProxy("memories")
 
     async def create(self, record: MemoryRecord) -> MemoryRecord:
-        await ensure_active_pool()
-
         try:
-            async with db_manager.pool.acquire() as conn:
+            async with get_connection() as conn:
                 await conn.execute(
                     """
                     INSERT INTO memories (
@@ -281,9 +296,7 @@ class PostgreSQLMemoryRepository(MemoryRepository):
     async def get_by_id(
         self, memory_id: UUID, tenant_id: str, user_id: str
     ) -> Optional[MemoryRecord]:
-        await ensure_active_pool()
-
-        async with db_manager.pool.acquire() as conn:
+        async with get_connection() as conn:
             row = await conn.fetchrow(
                 "SELECT * FROM memories WHERE id = $1 AND tenant_id = $2 AND user_id = $3",
                 memory_id,
@@ -295,9 +308,7 @@ class PostgreSQLMemoryRepository(MemoryRepository):
             return row_to_memory_record(row)
 
     async def update(self, record: MemoryRecord) -> MemoryRecord:
-        await ensure_active_pool()
-
-        async with db_manager.pool.acquire() as conn:
+        async with get_connection() as conn:
             # Check if record exists at all
             persisted_row = await conn.fetchrow("SELECT * FROM memories WHERE id = $1", record.id)
             if persisted_row is None:
@@ -373,9 +384,7 @@ class PostgreSQLMemoryRepository(MemoryRepository):
     async def delete(
         self, memory_id: UUID, tenant_id: str, user_id: str
     ) -> MemoryRecord:
-        await ensure_active_pool()
-
-        async with db_manager.pool.acquire() as conn:
+        async with get_connection() as conn:
             persisted_row = await conn.fetchrow("SELECT * FROM memories WHERE id = $1", memory_id)
             if persisted_row is None:
                 raise ValueError(f"Missing target: Memory record with ID {memory_id} does not exist.")
@@ -413,9 +422,7 @@ class PostgreSQLMemoryRepository(MemoryRepository):
     async def list_by_status(
         self, tenant_id: str, user_id: str, status: MemoryStatus
     ) -> List[MemoryRecord]:
-        await ensure_active_pool()
-
-        async with db_manager.pool.acquire() as conn:
+        async with get_connection() as conn:
             rows = await conn.fetch(
                 "SELECT * FROM memories WHERE tenant_id = $1 AND user_id = $2 AND status = $3 ORDER BY created_at DESC, id ASC",
                 tenant_id,
@@ -430,9 +437,7 @@ class PostgreSQLMemoryRepository(MemoryRepository):
         if limit <= 0:
             raise ValueError("Limit must be a positive integer greater than zero.")
 
-        await ensure_active_pool()
-
-        async with db_manager.pool.acquire() as conn:
+        async with get_connection() as conn:
             rows = await conn.fetch(
                 """
                 SELECT * FROM memories
@@ -453,9 +458,7 @@ class PostgreSQLMemoryRepository(MemoryRepository):
         memory_type: MemoryType,
         identity_slot: str,
     ) -> List[MemoryRecord]:
-        await ensure_active_pool()
-
-        async with db_manager.pool.acquire() as conn:
+        async with get_connection() as conn:
             rows = await conn.fetch(
                 """
                 SELECT * FROM memories
@@ -483,9 +486,7 @@ class PostgreSQLMemoryRepository(MemoryRepository):
         if query_embedding is not None and len(query_embedding) != 1536:
             raise ValueError("query_embedding must be exactly 1536 dimensions")
 
-        await ensure_active_pool()
-
-        async with db_manager.pool.acquire() as conn:
+        async with get_connection() as conn:
             if query_embedding is None:
                 rows = await conn.fetch(
                     """
@@ -520,10 +521,8 @@ class PostgreSQLAuditRepository(AuditService):
         self._events = PostgresDictProxy("memory_audit_logs")
 
     async def record(self, event: AuditEvent) -> AuditEvent:
-        await ensure_active_pool()
-
         try:
-            async with db_manager.pool.acquire() as conn:
+            async with get_connection() as conn:
                 await conn.execute(
                     """
                     INSERT INTO memory_audit_logs (
@@ -557,8 +556,6 @@ class PostgreSQLAuditRepository(AuditService):
         if limit is not None and limit <= 0:
             raise ValueError("Limit must be a positive integer greater than zero.")
 
-        await ensure_active_pool()
-
         query = "SELECT * FROM memory_audit_logs WHERE tenant_id = $1"
         params = [tenant_id]
         idx = 2
@@ -579,6 +576,6 @@ class PostgreSQLAuditRepository(AuditService):
             query += f" LIMIT ${idx}"
             params.append(limit)
 
-        async with db_manager.pool.acquire() as conn:
+        async with get_connection() as conn:
             rows = await conn.fetch(query, *params)
             return [row_to_audit_event(r) for r in rows]
