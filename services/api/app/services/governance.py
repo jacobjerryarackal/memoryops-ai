@@ -13,6 +13,7 @@ from ..domain.models import AuditEvent, CandidateMemory, MemoryRecord
 from ..policy.broker import PolicyBroker
 from ..policy.registry import SlotCardinality
 from ..repositories.base import MemoryRepository
+from ..repositories.transactions import TransactionManager
 from .audit import AuditService
 
 
@@ -42,10 +43,20 @@ class GovernanceService:
         repository: MemoryRepository,
         audit_service: AuditService,
         broker: PolicyBroker,
+        transaction_manager: Optional[TransactionManager] = None,
     ) -> None:
         self.repository = repository
         self.audit_service = audit_service
         self.broker = broker
+        if transaction_manager is None:
+            from ..repositories.postgres import PostgreSQLMemoryRepository
+            if isinstance(repository, PostgreSQLMemoryRepository):
+                from ..runtime import get_transaction_manager
+                transaction_manager = get_transaction_manager()
+            else:
+                from ..repositories.transactions import TransactionManager
+                transaction_manager = TransactionManager(force_in_memory=True)
+        self.transaction_manager = transaction_manager
 
     async def list_memories(
         self,
@@ -201,129 +212,130 @@ class GovernanceService:
         Performs a manual governed memory update or lifecycle transition.
         Enforces coordinate immutability and content-safety gating.
         """
-        existing = await self.repository.get_by_id(memory_id, tenant_id, user_id)
-        if existing is None or existing.status == MemoryStatus.DELETED:
-            raise GovernanceTargetUnavailableError(
-                "Memory was not found within the requested scope."
-            )
-
-        primary_action = AuditEventAction.MEMORY_UPDATED
-        updated_status = existing.status
-
-        # 1. Validate status transition
-        if status is not None and status != existing.status:
-            allowed = False
-            if existing.status == MemoryStatus.PENDING:
-                if status == MemoryStatus.ACTIVE:
-                    allowed = True
-                    primary_action = AuditEventAction.MEMORY_APPROVED
-                elif status == MemoryStatus.REJECTED:
-                    allowed = True
-                    primary_action = AuditEventAction.MEMORY_REJECTED
-            elif existing.status == MemoryStatus.ACTIVE:
-                if status == MemoryStatus.ARCHIVED:
-                    allowed = True
-                    primary_action = AuditEventAction.MEMORY_ARCHIVED
-            elif existing.status == MemoryStatus.ARCHIVED:
-                if status == MemoryStatus.ACTIVE:
-                    allowed = True
-                    primary_action = AuditEventAction.MEMORY_APPROVED
-
-            if not allowed:
-                raise GovernanceInvalidTransitionError(
-                    f"Invalid lifecycle transition from {existing.status.value} to {status.value}."
+        async with self.transaction_manager.transaction():
+            existing = await self.repository.get_by_id(memory_id, tenant_id, user_id)
+            if existing is None or existing.status == MemoryStatus.DELETED:
+                raise GovernanceTargetUnavailableError(
+                    "Memory was not found within the requested scope."
                 )
-            
-            # Single-valued slot approval-time revalidation (ADR-006)
-            if existing.status == MemoryStatus.PENDING and status == MemoryStatus.ACTIVE and existing.identity_slot is not None:
-                cardinality = self.broker.registry.get_cardinality(existing.memory_type, existing.identity_slot)
-                if cardinality == SlotCardinality.SINGLE:
-                    active_occupants = await self.repository.get_active_by_slot(
-                        tenant_id=tenant_id,
-                        user_id=user_id,
-                        memory_type=existing.memory_type,
-                        identity_slot=existing.identity_slot,
-                    )
-                    if len(active_occupants) > 0:
-                        raise GovernanceValidationError(
-                            f"Slot '{existing.identity_slot}' is registered as SINGLE and is already occupied by active record '{active_occupants[0].id}'."
-                        )
-            
-            updated_status = status
 
-        # 2. Safety Broker gating on content change (INV-004, ADR-003)
-        updated_content = existing.content
-        embedding_to_set = existing.embedding
-        if content is not None and content != existing.content:
-            candidate = CandidateMemory(
+            primary_action = AuditEventAction.MEMORY_UPDATED
+            updated_status = existing.status
+
+            # 1. Validate status transition
+            if status is not None and status != existing.status:
+                allowed = False
+                if existing.status == MemoryStatus.PENDING:
+                    if status == MemoryStatus.ACTIVE:
+                        allowed = True
+                        primary_action = AuditEventAction.MEMORY_APPROVED
+                    elif status == MemoryStatus.REJECTED:
+                        allowed = True
+                        primary_action = AuditEventAction.MEMORY_REJECTED
+                elif existing.status == MemoryStatus.ACTIVE:
+                    if status == MemoryStatus.ARCHIVED:
+                        allowed = True
+                        primary_action = AuditEventAction.MEMORY_ARCHIVED
+                elif existing.status == MemoryStatus.ARCHIVED:
+                    if status == MemoryStatus.ACTIVE:
+                        allowed = True
+                        primary_action = AuditEventAction.MEMORY_APPROVED
+
+                if not allowed:
+                    raise GovernanceInvalidTransitionError(
+                        f"Invalid lifecycle transition from {existing.status.value} to {status.value}."
+                    )
+                
+                # Single-valued slot approval-time revalidation (ADR-006)
+                if existing.status == MemoryStatus.PENDING and status == MemoryStatus.ACTIVE and existing.identity_slot is not None:
+                    cardinality = self.broker.registry.get_cardinality(existing.memory_type, existing.identity_slot)
+                    if cardinality == SlotCardinality.SINGLE:
+                        active_occupants = await self.repository.get_active_by_slot(
+                            tenant_id=tenant_id,
+                            user_id=user_id,
+                            memory_type=existing.memory_type,
+                            identity_slot=existing.identity_slot,
+                        )
+                        if len(active_occupants) > 0:
+                            raise GovernanceValidationError(
+                                f"Slot '{existing.identity_slot}' is registered as SINGLE and is already occupied by active record '{active_occupants[0].id}'."
+                            )
+                
+                updated_status = status
+
+            # 2. Safety Broker gating on content change (INV-004, ADR-003)
+            updated_content = existing.content
+            embedding_to_set = existing.embedding
+            if content is not None and content != existing.content:
+                candidate = CandidateMemory(
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    content=content,
+                    memory_type=existing.memory_type,
+                    confidence=confidence if confidence is not None else existing.confidence,
+                    importance=importance if importance is not None else existing.importance,
+                    sensitivity=sensitivity if sensitivity is not None else existing.sensitivity,
+                    source_kind=source_kind if source_kind is not None else existing.source_kind,
+                    source_conversation_id=source_conversation_id if source_conversation_id is not None else existing.source_conversation_id,
+                    source_excerpt=source_excerpt if source_excerpt is not None else existing.source_excerpt,
+                    identity_slot=existing.identity_slot,
+                )
+                policy_result = await self.broker.evaluate(candidate)
+                if policy_result.decision == PolicyDecision.BLOCK:
+                    raise GovernancePolicyBlockedError(policy_result.reason)
+                elif policy_result.decision == PolicyDecision.PENDING_APPROVAL:
+                    # If content safety forces PENDING_APPROVAL, route status back to pending
+                    updated_status = MemoryStatus.PENDING
+                    primary_action = AuditEventAction.MEMORY_PENDING_APPROVAL
+
+                updated_content = content
+                # Clear embedding derived-state atomically on content update (INV-006)
+                embedding_to_set = None
+
+            # 3. Apply updates
+            updated_record = existing.model_copy(deep=True)
+            updated_record.content = updated_content
+            updated_record.status = updated_status
+            updated_record.embedding = embedding_to_set
+
+            if importance is not None:
+                updated_record.importance = importance
+            if confidence is not None:
+                updated_record.confidence = confidence
+            if sensitivity is not None:
+                updated_record.sensitivity = sensitivity
+            if source_kind is not None:
+                updated_record.source_kind = source_kind
+            if source_conversation_id is not None:
+                updated_record.source_conversation_id = source_conversation_id
+            if source_excerpt is not None:
+                updated_record.source_excerpt = source_excerpt
+
+            now = datetime.now(timezone.utc)
+            if updated_status == MemoryStatus.ARCHIVED and existing.status != MemoryStatus.ARCHIVED:
+                updated_record.archived_at = now
+            elif updated_status == MemoryStatus.ACTIVE:
+                updated_record.archived_at = None
+
+            saved = await self.repository.update(updated_record)
+
+            # 4. Record Audit Trail (INV-008 / Phase 15)
+            audit_event = AuditEvent(
                 tenant_id=tenant_id,
                 user_id=user_id,
-                content=content,
-                memory_type=existing.memory_type,
-                confidence=confidence if confidence is not None else existing.confidence,
-                importance=importance if importance is not None else existing.importance,
-                sensitivity=sensitivity if sensitivity is not None else existing.sensitivity,
-                source_kind=source_kind if source_kind is not None else existing.source_kind,
-                source_conversation_id=source_conversation_id if source_conversation_id is not None else existing.source_conversation_id,
-                source_excerpt=source_excerpt if source_excerpt is not None else existing.source_excerpt,
-                identity_slot=existing.identity_slot,
+                memory_id=saved.id,
+                action=primary_action,
+                reason="Manual governance mutation via PATCH.",
+                metadata={
+                    "previous_status": existing.status.value,
+                    "new_status": saved.status.value,
+                    "content_changed": content is not None and content != existing.content,
+                },
+                trace_id=trace_id,
             )
-            policy_result = await self.broker.evaluate(candidate)
-            if policy_result.decision == PolicyDecision.BLOCK:
-                raise GovernancePolicyBlockedError(policy_result.reason)
-            elif policy_result.decision == PolicyDecision.PENDING_APPROVAL:
-                # If content safety forces PENDING_APPROVAL, route status back to pending
-                updated_status = MemoryStatus.PENDING
-                primary_action = AuditEventAction.MEMORY_PENDING_APPROVAL
+            await self.audit_service.record(audit_event)
 
-            updated_content = content
-            # Clear embedding derived-state atomically on content update (INV-006)
-            embedding_to_set = None
-
-        # 3. Apply updates
-        updated_record = existing.model_copy(deep=True)
-        updated_record.content = updated_content
-        updated_record.status = updated_status
-        updated_record.embedding = embedding_to_set
-
-        if importance is not None:
-            updated_record.importance = importance
-        if confidence is not None:
-            updated_record.confidence = confidence
-        if sensitivity is not None:
-            updated_record.sensitivity = sensitivity
-        if source_kind is not None:
-            updated_record.source_kind = source_kind
-        if source_conversation_id is not None:
-            updated_record.source_conversation_id = source_conversation_id
-        if source_excerpt is not None:
-            updated_record.source_excerpt = source_excerpt
-
-        now = datetime.now(timezone.utc)
-        if updated_status == MemoryStatus.ARCHIVED and existing.status != MemoryStatus.ARCHIVED:
-            updated_record.archived_at = now
-        elif updated_status == MemoryStatus.ACTIVE:
-            updated_record.archived_at = None
-
-        saved = await self.repository.update(updated_record)
-
-        # 4. Record Audit Trail (INV-008 / Phase 15)
-        audit_event = AuditEvent(
-            tenant_id=tenant_id,
-            user_id=user_id,
-            memory_id=saved.id,
-            action=primary_action,
-            reason="Manual governance mutation via PATCH.",
-            metadata={
-                "previous_status": existing.status.value,
-                "new_status": saved.status.value,
-                "content_changed": content is not None and content != existing.content,
-            },
-            trace_id=trace_id,
-        )
-        await self.audit_service.record(audit_event)
-
-        return saved
+            return saved
 
     async def delete_memory(
         self,
@@ -336,31 +348,32 @@ class GovernanceService:
         Logically deletes a memory record by transition to status = deleted.
         Idempotent: if already deleted, returns the existing record without generating audit events.
         """
-        existing = await self.repository.get_by_id(memory_id, tenant_id, user_id)
-        if existing is None:
-            raise GovernanceTargetUnavailableError(
-                "Memory was not found within the requested scope."
+        async with self.transaction_manager.transaction():
+            existing = await self.repository.get_by_id(memory_id, tenant_id, user_id)
+            if existing is None:
+                raise GovernanceTargetUnavailableError(
+                    "Memory was not found within the requested scope."
+                )
+
+            if existing.status == MemoryStatus.DELETED:
+                return existing
+
+            # Mark deleted
+            deleted = await self.repository.delete(memory_id, tenant_id, user_id)
+
+            # Emit audit trail
+            audit_event = AuditEvent(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                memory_id=deleted.id,
+                action=AuditEventAction.MEMORY_DELETED,
+                reason="Logical deletion via DELETE.",
+                metadata={
+                    "previous_status": existing.status.value,
+                    "new_status": deleted.status.value,
+                },
+                trace_id=trace_id,
             )
+            await self.audit_service.record(audit_event)
 
-        if existing.status == MemoryStatus.DELETED:
-            return existing
-
-        # Mark deleted
-        deleted = await self.repository.delete(memory_id, tenant_id, user_id)
-
-        # Emit audit trail
-        audit_event = AuditEvent(
-            tenant_id=tenant_id,
-            user_id=user_id,
-            memory_id=deleted.id,
-            action=AuditEventAction.MEMORY_DELETED,
-            reason="Logical deletion via DELETE.",
-            metadata={
-                "previous_status": existing.status.value,
-                "new_status": deleted.status.value,
-            },
-            trace_id=trace_id,
-        )
-        await self.audit_service.record(audit_event)
-
-        return deleted
+            return deleted
