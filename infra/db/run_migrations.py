@@ -4,6 +4,10 @@ import asyncio
 import logging
 from pathlib import Path
 import asyncpg
+import dotenv
+
+# Load .env variables
+dotenv.load_dotenv()
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
