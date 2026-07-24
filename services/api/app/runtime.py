@@ -1,22 +1,31 @@
+import os
+from .repositories.base import MemoryRepository
 from .repositories.memory import InMemoryMemoryRepository
+from .repositories.postgres import PostgreSQLMemoryRepository, PostgreSQLAuditRepository
 from .services.embedding_factory import get_embedding_service
 from .services.retrieval import Retriever, Ranker, ContextComposer, RetrievalCoordinator
 from .services.retrieval_telemetry import StructuredRetrievalLogger
-from .services.audit import InMemoryAuditService
+from .services.audit import AuditService, InMemoryAuditService
 from .services.governance import GovernanceService
 from .policy.broker import PolicyBroker
 
-# Single process-lifetime repository and audit instance
-_shared_repository = InMemoryMemoryRepository()
-_shared_audit = InMemoryAuditService()
+db_type = os.environ.get("DATABASE_TYPE", "memory").strip().lower()
+
+if db_type == "postgres":
+    _shared_repository: MemoryRepository = PostgreSQLMemoryRepository()
+    _shared_audit: AuditService = PostgreSQLAuditRepository()
+else:
+    _shared_repository: MemoryRepository = InMemoryMemoryRepository()
+    _shared_audit: AuditService = InMemoryAuditService()
+
 _shared_telemetry = StructuredRetrievalLogger()
 
 
-def get_memory_repository() -> InMemoryMemoryRepository:
+def get_memory_repository() -> MemoryRepository:
     return _shared_repository
 
 
-def get_audit_service() -> InMemoryAuditService:
+def get_audit_service() -> AuditService:
     return _shared_audit
 
 
