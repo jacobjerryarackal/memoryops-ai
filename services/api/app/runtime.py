@@ -2,6 +2,7 @@ import os
 from .repositories.base import MemoryRepository
 from .repositories.memory import InMemoryMemoryRepository
 from .repositories.postgres import PostgreSQLMemoryRepository, PostgreSQLAuditRepository
+from .repositories.transactions import TransactionManager
 from .services.embedding_factory import get_embedding_service
 from .services.retrieval import Retriever, Ranker, ContextComposer, RetrievalCoordinator
 from .services.retrieval_telemetry import StructuredRetrievalLogger
@@ -18,11 +19,16 @@ else:
     _shared_repository: MemoryRepository = InMemoryMemoryRepository()
     _shared_audit: AuditService = InMemoryAuditService()
 
+_shared_transaction_manager = TransactionManager()
 _shared_telemetry = StructuredRetrievalLogger()
 
 
 def get_memory_repository() -> MemoryRepository:
     return _shared_repository
+
+
+def get_transaction_manager() -> TransactionManager:
+    return _shared_transaction_manager
 
 
 def get_audit_service() -> AuditService:
