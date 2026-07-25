@@ -10,9 +10,9 @@ from typing import List, Optional, Tuple, Dict, Any, AsyncIterator
 from contextlib import asynccontextmanager
 import asyncpg
 
-from ..domain.models import MemoryRecord, AuditEvent
-from ..domain.enums import MemoryStatus, MemoryType, Sensitivity, PolicyDecision, AuditEventAction
-from .base import MemoryRepository
+from ..domain.models import MemoryRecord, AuditEvent, LifecycleRunHistory
+from ..domain.enums import MemoryStatus, MemoryType, Sensitivity, PolicyDecision, AuditEventAction, LifecycleJobStatus
+from .base import MemoryRepository, LifecycleRepository
 from ..services.audit import AuditService
 from .postgres_connection import db_manager
 from .transactions import db_tx_conn
@@ -128,14 +128,15 @@ class PostgresDictProxy(dict):
                             source_conversation_id = $13, source_excerpt = $14,
                             initial_policy_decision = $15, initial_policy_reason = $16,
                             created_at = $17, updated_at = $18, archived_at = $19, deleted_at = $20,
-                            identity_slot = $21
+                            identity_slot = $21, legal_hold = $22, expires_at = $23
                         WHERE id = $1
                         """,
                         value.id, value.tenant_id, value.user_id, value.content, value.memory_type.value,
                         value.status.value, value.sensitivity.value, value.importance, value.confidence,
                         value.reinforcement_count, value.embedding, value.source_kind, value.source_conversation_id,
                         value.source_excerpt, value.initial_policy_decision.value, value.initial_policy_reason,
-                        value.created_at, value.updated_at, value.archived_at, value.deleted_at, value.identity_slot
+                        value.created_at, value.updated_at, value.archived_at, value.deleted_at, value.identity_slot,
+                        value.legal_hold, value.expires_at
                     )
                 else:
                     await conn.execute(
@@ -145,16 +146,17 @@ class PostgresDictProxy(dict):
                             importance, confidence, reinforcement_count, embedding, source_kind,
                             source_conversation_id, source_excerpt, initial_policy_decision,
                             initial_policy_reason, created_at, updated_at, archived_at, deleted_at,
-                            identity_slot
+                            identity_slot, legal_hold, expires_at
                         ) VALUES (
-                            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+                            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
                         )
                         """,
                         value.id, value.tenant_id, value.user_id, value.content, value.memory_type.value,
                         value.status.value, value.sensitivity.value, value.importance, value.confidence,
                         value.reinforcement_count, value.embedding, value.source_kind, value.source_conversation_id,
                         value.source_excerpt, value.initial_policy_decision.value, value.initial_policy_reason,
-                        value.created_at, value.updated_at, value.archived_at, value.deleted_at, value.identity_slot
+                        value.created_at, value.updated_at, value.archived_at, value.deleted_at, value.identity_slot,
+                        value.legal_hold, value.expires_at
                     )
             elif self.table_name == "memory_audit_logs":
                 # Satisfy foreign key constraint on memory_id if present
@@ -168,9 +170,9 @@ class PostgresDictProxy(dict):
                                 importance, confidence, reinforcement_count, embedding, source_kind,
                                 source_conversation_id, source_excerpt, initial_policy_decision,
                                 initial_policy_reason, created_at, updated_at, archived_at, deleted_at,
-                                identity_slot
+                                identity_slot, legal_hold, expires_at
                             ) VALUES (
-                                $1, $2, $3, 'dummy', 'semantic', 'active', 'low', 5, 0.0, 0, NULL, 'chat', NULL, NULL, 'SAVE', 'dummy', NOW(), NOW(), NULL, NULL, NULL
+                                $1, $2, $3, 'dummy', 'semantic', 'active', 'low', 5, 0.0, 0, NULL, 'chat', NULL, NULL, 'SAVE', 'dummy', NOW(), NOW(), NULL, NULL, NULL, FALSE, NULL
                             )
                             """,
                             value.memory_id, value.tenant_id, "dummy"
@@ -224,6 +226,8 @@ def row_to_memory_record(row: asyncpg.Record) -> MemoryRecord:
         archived_at=row["archived_at"],
         deleted_at=row["deleted_at"],
         identity_slot=row["identity_slot"],
+        legal_hold=row["legal_hold"],
+        expires_at=row["expires_at"],
     )
 
 
@@ -261,9 +265,9 @@ class PostgreSQLMemoryRepository(MemoryRepository):
                         importance, confidence, reinforcement_count, embedding, source_kind,
                         source_conversation_id, source_excerpt, initial_policy_decision,
                         initial_policy_reason, created_at, updated_at, archived_at, deleted_at,
-                        identity_slot
+                        identity_slot, legal_hold, expires_at
                     ) VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
                     )
                     """,
                     record.id,
@@ -287,6 +291,8 @@ class PostgreSQLMemoryRepository(MemoryRepository):
                     record.archived_at,
                     record.deleted_at,
                     record.identity_slot,
+                    record.legal_hold,
+                    record.expires_at,
                 )
         except asyncpg.exceptions.UniqueViolationError:
             raise ValueError(f"Duplicate key: Memory record with ID {record.id} already exists.")
@@ -355,7 +361,9 @@ class PostgreSQLMemoryRepository(MemoryRepository):
                     source_excerpt = $13,
                     updated_at = $14,
                     archived_at = $15,
-                    deleted_at = $16
+                    deleted_at = $16,
+                    legal_hold = $17,
+                    expires_at = $18
                 WHERE id = $1 AND tenant_id = $2 AND user_id = $3
                 """,
                 record.id,
@@ -374,6 +382,8 @@ class PostgreSQLMemoryRepository(MemoryRepository):
                 new_updated_at,
                 record.archived_at,
                 record.deleted_at,
+                record.legal_hold,
+                record.expires_at,
             )
 
             # Return updated record
@@ -394,6 +404,10 @@ class PostgreSQLMemoryRepository(MemoryRepository):
             # Verify scope
             if persisted.tenant_id != tenant_id or persisted.user_id != user_id:
                 raise ValueError("Scope mismatch: unauthorized deletion attempt.")
+
+            # Enforce legal hold gating (fail-closed)
+            if persisted.legal_hold:
+                raise ValueError("Operation blocked: Memory record is under active legal hold.")
 
             if persisted.status == MemoryStatus.DELETED:
                 return persisted
@@ -579,3 +593,144 @@ class PostgreSQLAuditRepository(AuditService):
         async with get_connection() as conn:
             rows = await conn.fetch(query, *params)
             return [row_to_audit_event(r) for r in rows]
+
+
+class PostgreSQLLifecycleRepository(LifecycleRepository):
+
+    async def create_run(self, run: LifecycleRunHistory) -> LifecycleRunHistory:
+        try:
+            async with get_connection() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO lifecycle_run_history (
+                        id, job_name, status, started_at, completed_at, error_message, records_processed, metadata
+                    ) VALUES (
+                        $1, $2, $3, $4, $5, $6, $7, $8
+                    )
+                    """,
+                    run.id,
+                    run.job_name,
+                    run.status.value,
+                    run.started_at,
+                    run.completed_at,
+                    run.error_message,
+                    run.records_processed,
+                    json.dumps(run.metadata),
+                )
+        except asyncpg.exceptions.UniqueViolationError:
+            raise ValueError(f"Duplicate key: Run with ID {run.id} already exists.")
+        return run.model_copy(deep=True)
+
+    async def update_run(self, run: LifecycleRunHistory) -> LifecycleRunHistory:
+        async with get_connection() as conn:
+            exists = await conn.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM lifecycle_run_history WHERE id = $1)",
+                run.id
+            )
+            if not exists:
+                raise ValueError(f"Missing target: Run with ID {run.id} does not exist.")
+
+            await conn.execute(
+                """
+                UPDATE lifecycle_run_history SET
+                    status = $2,
+                    completed_at = $3,
+                    error_message = $4,
+                    records_processed = $5,
+                    metadata = $6
+                WHERE id = $1
+                """,
+                run.id,
+                run.status.value,
+                run.completed_at,
+                run.error_message,
+                run.records_processed,
+                json.dumps(run.metadata),
+            )
+        return run.model_copy(deep=True)
+
+    async def get_run_by_id(self, run_id: UUID) -> Optional[LifecycleRunHistory]:
+        async with get_connection() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM lifecycle_run_history WHERE id = $1",
+                run_id
+            )
+            if row is None:
+                return None
+            
+            metadata_val = row["metadata"]
+            if metadata_val is None:
+                metadata_val = {}
+            elif isinstance(metadata_val, str):
+                metadata_val = json.loads(metadata_val)
+
+            return LifecycleRunHistory(
+                id=row["id"],
+                job_name=row["job_name"],
+                status=LifecycleJobStatus(row["status"]),
+                started_at=row["started_at"],
+                completed_at=row["completed_at"],
+                error_message=row["error_message"],
+                records_processed=row["records_processed"],
+                metadata=metadata_val,
+            )
+
+    async def list_runs(
+        self, job_name: Optional[str] = None, limit: int = 100
+    ) -> List[LifecycleRunHistory]:
+        query = "SELECT * FROM lifecycle_run_history"
+        params = []
+        if job_name is not None:
+            query += " WHERE job_name = $1"
+            params.append(job_name)
+        
+        query += " ORDER BY started_at DESC, id ASC"
+        
+        if job_name is not None:
+            query += f" LIMIT $2"
+            params.append(limit)
+        else:
+            query += f" LIMIT $1"
+            params.append(limit)
+
+        async with get_connection() as conn:
+            rows = await conn.fetch(query, *params)
+            
+            runs = []
+            for row in rows:
+                metadata_val = row["metadata"]
+                if metadata_val is None:
+                    metadata_val = {}
+                elif isinstance(metadata_val, str):
+                    metadata_val = json.loads(metadata_val)
+
+                runs.append(
+                    LifecycleRunHistory(
+                        id=row["id"],
+                        job_name=row["job_name"],
+                        status=LifecycleJobStatus(row["status"]),
+                        started_at=row["started_at"],
+                        completed_at=row["completed_at"],
+                        error_message=row["error_message"],
+                        records_processed=row["records_processed"],
+                        metadata=metadata_val,
+                    )
+                )
+            return runs
+
+    async def is_job_running(self, job_name: str, tenant_id: str, user_id: str) -> bool:
+        async with get_connection() as conn:
+            return await conn.fetchval(
+                """
+                SELECT EXISTS(
+                    SELECT 1 FROM lifecycle_run_history 
+                    WHERE job_name = $1 
+                      AND status = 'running' 
+                      AND metadata->>'tenant_id' = $2 
+                      AND metadata->>'user_id' = $3
+                )
+                """,
+                job_name,
+                tenant_id,
+                user_id
+            )
