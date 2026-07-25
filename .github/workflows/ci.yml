@@ -1,0 +1,91 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: memoryops_ai
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d memoryops_ai"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio black flake8 mypy types-requests types-PyYAML
+
+      - name: Format Check (Black)
+        run: |
+          black --check services/api tests
+
+      - name: Lint Check (Flake8)
+        run: |
+          # stop the build if there are Python syntax errors or undefined names
+          flake8 services/api tests --count --select=E9,F63,F7,F82 --show-source --statistics
+          # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
+          flake8 services/api tests --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Type Check (Mypy)
+        run: |
+          mypy services/api tests --ignore-missing-imports
+
+      - name: Setup Test Database Schema
+        env:
+          DATABASE_TYPE: postgres
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DB: memoryops_ai
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        run: |
+          python infra/db/run_migrations.py
+
+      - name: Run Tests (In-Memory)
+        env:
+          DATABASE_TYPE: memory
+          PYTHONPATH: .
+        run: |
+          pytest
+
+      - name: Run Tests (PostgreSQL)
+        env:
+          DATABASE_TYPE: postgres
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DB: memoryops_ai
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          PYTHONPATH: .
+        run: |
+          pytest
+
+      - name: Validate Docker Image Build
+        run: |
+          docker build -t memoryops-api:latest -f Dockerfile .
