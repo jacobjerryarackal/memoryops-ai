@@ -137,6 +137,7 @@ async def test_execution_history_success_and_fail():
     assert persisted1.metadata.get("tenant_id") == "tenant_a"
 
     # 2. Test fail run
+    await asyncio.sleep(0.02)
     run2 = await runner.run_job("fail_job", "tenant_a", "user_a")
     assert run2.status == LifecycleJobStatus.FAILED
     assert run2.completed_at is not None
