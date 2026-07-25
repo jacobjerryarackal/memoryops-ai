@@ -338,10 +338,16 @@ class PostgreSQLMemoryRepository(MemoryRepository):
 
             # 4. Verify terminal logical deletion
             if persisted.status == MemoryStatus.DELETED:
-                raise ValueError("Terminal deletion: cannot update a logically deleted memory record.")
+                is_compaction = (
+                    record.status == MemoryStatus.DELETED
+                    and record.content == "[COMPACTED]"
+                    and record.embedding is None
+                )
+                if not is_compaction:
+                    raise ValueError("Terminal deletion: cannot update a logically deleted memory record.")
 
             # 5. Enforce segregation of deletion
-            if record.status == MemoryStatus.DELETED:
+            if record.status == MemoryStatus.DELETED and persisted.status != MemoryStatus.DELETED:
                 raise ValueError("Segregation of deletion: logical deletion must occur via the delete() method.")
 
             new_updated_at = datetime.now(timezone.utc)
@@ -595,6 +601,13 @@ class PostgreSQLAuditRepository(AuditService):
             return [row_to_audit_event(r) for r in rows]
 
 
+class DateTimeEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, datetime):
+            return o.isoformat()
+        return super().default(o)
+
+
 class PostgreSQLLifecycleRepository(LifecycleRepository):
 
     async def create_run(self, run: LifecycleRunHistory) -> LifecycleRunHistory:
@@ -615,7 +628,7 @@ class PostgreSQLLifecycleRepository(LifecycleRepository):
                     run.completed_at,
                     run.error_message,
                     run.records_processed,
-                    json.dumps(run.metadata),
+                    json.dumps(run.metadata, cls=DateTimeEncoder),
                 )
         except asyncpg.exceptions.UniqueViolationError:
             raise ValueError(f"Duplicate key: Run with ID {run.id} already exists.")
@@ -645,7 +658,7 @@ class PostgreSQLLifecycleRepository(LifecycleRepository):
                 run.completed_at,
                 run.error_message,
                 run.records_processed,
-                json.dumps(run.metadata),
+                json.dumps(run.metadata, cls=DateTimeEncoder),
             )
         return run.model_copy(deep=True)
 
