@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any, Set, Tuple
@@ -9,6 +10,7 @@ from ..domain.enums import LifecycleJobStatus, MemoryStatus, MemoryType, PolicyD
 from ..domain.models import LifecycleRunHistory, MemoryRecord
 from ..repositories.base import LifecycleRepository, MemoryRepository
 from datetime import timedelta
+from .observability import obs
 
 logger = logging.getLogger("app.services.lifecycle")
 
@@ -103,14 +105,35 @@ class LifecycleRunner:
         await self.lifecycle_repo.create_run(run)
 
         # 4. Execute worker
+        start_time = time.perf_counter()
         try:
             records_processed = await worker.run(tenant_id, user_id, **kwargs)
             run.status = LifecycleJobStatus.SUCCESS
             run.records_processed = records_processed
+
+            duration = (time.perf_counter() - start_time) * 1000.0
+            obs.record_metric(
+                "lifecycle_worker_duration",
+                round(duration, 3),
+                tags={"job_name": job_name, "status": "success", "tenant_id": tenant_id}
+            )
         except Exception as e:
             logger.exception(f"Error running job '{job_name}': {e}")
             run.status = LifecycleJobStatus.FAILED
             run.error_message = str(e)
+
+            duration = (time.perf_counter() - start_time) * 1000.0
+            obs.record_metric(
+                "lifecycle_worker_duration",
+                round(duration, 3),
+                tags={"job_name": job_name, "status": "failed", "tenant_id": tenant_id}
+            )
+            obs.record_error(
+                error_type=type(e).__name__,
+                message=str(e),
+                location=f"worker:{job_name}",
+                trace_id=kwargs.get("trace_id")
+            )
         finally:
             run.completed_at = datetime.now(timezone.utc)
             async with self._lock:
@@ -182,14 +205,23 @@ class WorkerScheduler:
             await asyncio.sleep(0.1)
 
     async def _trigger_job(self, job_name: str, tenant_id: str, user_id: str) -> None:
+        start_time = time.perf_counter()
         try:
-            await self.runner.run_job(job_name, tenant_id, user_id)
+            trace_id = f"trace-{uuid4()}"
+            with obs.span(f"scheduler:{job_name}", trace_id=trace_id, tags={"job_name": job_name, "tenant_id": tenant_id}):
+                await self.runner.run_job(job_name, tenant_id, user_id, trace_id=trace_id)
         except ValueError as e:
-            # Silence concurrency errors in scheduler log to keep it clean
             if "Concurrency block" not in str(e):
                 logger.error(f"Scheduler failed to run job '{job_name}': {e}")
         except Exception as e:
             logger.exception(f"Scheduler failed to execute job '{job_name}': {e}")
+        finally:
+            duration = (time.perf_counter() - start_time) * 1000.0
+            obs.record_metric(
+                "scheduler_trigger_duration",
+                round(duration, 3),
+                tags={"job_name": job_name, "tenant_id": tenant_id}
+            )
 
 
 def enforce_legal_hold(record: MemoryRecord) -> None:
