@@ -27,6 +27,14 @@ _shared_telemetry = StructuredRetrievalLogger()
 _shared_lifecycle_runner = LifecycleRunner(_shared_lifecycle_repo)
 _shared_worker_scheduler = WorkerScheduler(_shared_lifecycle_runner)
 
+# Register business workers
+from .services.lifecycle import RetentionWorker, DecayWorker, ReflectionWorker, CompactionWorker
+_shared_lifecycle_runner.register_worker(RetentionWorker(_shared_repository))
+_shared_lifecycle_runner.register_worker(DecayWorker(_shared_repository))
+_shared_lifecycle_runner.register_worker(ReflectionWorker(_shared_repository))
+_shared_lifecycle_runner.register_worker(CompactionWorker(_shared_repository))
+
+
 
 def get_memory_repository() -> MemoryRepository:
     return _shared_repository
