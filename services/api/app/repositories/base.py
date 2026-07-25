@@ -1,8 +1,8 @@
 from abc import ABC, abstractmethod
 from uuid import UUID
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict, Any
 
-from ..domain.models import MemoryRecord
+from ..domain.models import MemoryRecord, LifecycleRunHistory
 from ..domain.enums import MemoryStatus, MemoryType
 
 class MemoryRepository(ABC):
@@ -178,22 +178,47 @@ class MemoryRepository(ABC):
     ) -> List[Tuple[MemoryRecord, Optional[float]]]:
         """
         Retrieves a bounded pool of active memory candidates scoped by tenant and user.
-
-        If query_embedding is provided, calculates the raw cosine similarity for each
-        active record (excluding records where embedding is None), sorts the records
-        by similarity descending, and returns the top records with their similarity floats.
-
-        If query_embedding is None, retrieves active records in scope without vector
-        matching, returning them with a similarity score of None to signify that
-        semantic evidence is unavailable/not calculated.
-
-        Args:
-            tenant_id: The tenant scope identifier.
-            user_id: The user scope identifier.
-            query_embedding: Optional 1536-dimensional float vector, or None.
-            limit: The maximum number of candidates to return (must be >= 1).
-
-        Returns:
-            A list of tuples containing (MemoryRecord, Optional[float]).
+        ...
         """
         pass
+
+
+class LifecycleRepository(ABC):
+
+    @abstractmethod
+    async def create_run(self, run: LifecycleRunHistory) -> LifecycleRunHistory:
+        """
+        Creates a new lifecycle run history record.
+        """
+        pass
+
+    @abstractmethod
+    async def update_run(self, run: LifecycleRunHistory) -> LifecycleRunHistory:
+        """
+        Updates an existing lifecycle run history record.
+        """
+        pass
+
+    @abstractmethod
+    async def get_run_by_id(self, run_id: UUID) -> Optional[LifecycleRunHistory]:
+        """
+        Retrieves a run history record by ID.
+        """
+        pass
+
+    @abstractmethod
+    async def list_runs(
+        self, job_name: Optional[str] = None, limit: int = 100
+    ) -> List[LifecycleRunHistory]:
+        """
+        Lists past run history records, optionally filtered by job_name.
+        """
+        pass
+
+    @abstractmethod
+    async def is_job_running(self, job_name: str, tenant_id: str, user_id: str) -> bool:
+        """
+        Checks if the specified job is currently running in the given scope.
+        """
+        pass
+
