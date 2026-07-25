@@ -21,6 +21,11 @@ async def init_connection(conn: asyncpg.Connection) -> None:
         raise
 
 
+import ssl
+from typing import Optional, Any
+from ..config import settings
+
+
 class DatabaseConnectionManager:
     """
     Manages the lifespan of the PostgreSQL connection pool.
@@ -33,24 +38,36 @@ class DatabaseConnectionManager:
         if self.pool is not None:
             return
 
-        host = os.environ.get("POSTGRES_HOST", "127.0.0.1")
-        port = os.environ.get("POSTGRES_PORT", "5432")
-        db = os.environ.get("POSTGRES_DB", "postgres")
-        user = os.environ.get("POSTGRES_USER", "postgres")
-        password = os.environ.get("POSTGRES_PASSWORD", "postgres")
+        logger.info(f"Initializing PostgreSQL connection pool on {settings.postgres_host}:{settings.postgres_port}/{settings.postgres_db}...")
 
-        logger.info(f"Initializing PostgreSQL connection pool on {host}:{port}/{db}...")
+        ssl_mode = settings.postgres_ssl.strip().lower()
+        ssl_param = None
+        if ssl_mode == "disable":
+            ssl_param = False
+        elif ssl_mode == "prefer":
+            ssl_param = "prefer"
+        elif ssl_mode == "require":
+            ssl_param = True
+        elif ssl_mode in ("verify-ca", "verify-full"):
+            ssl_context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
+            if ssl_mode == "verify-ca":
+                ssl_context.check_hostname = False
+            else:
+                ssl_context.check_hostname = True
+            ssl_context.verify_mode = ssl.CERT_REQUIRED
+            ssl_param = ssl_context
 
         try:
             self.pool = await asyncpg.create_pool(
-                host=host,
-                port=int(port),
-                database=db,
-                user=user,
-                password=password,
-                min_size=2,
-                max_size=10,
-                timeout=10.0,
+                host=settings.postgres_host,
+                port=settings.postgres_port,
+                database=settings.postgres_db,
+                user=settings.postgres_user,
+                password=settings.postgres_password,
+                min_size=settings.postgres_min_pool_size,
+                max_size=settings.postgres_max_pool_size,
+                timeout=settings.postgres_connection_timeout,
+                ssl=ssl_param,
                 init=init_connection,
             )
             logger.info("PostgreSQL connection pool initialized successfully.")
