@@ -1,4 +1,4 @@
-import os
+from .config import settings
 from .repositories.base import MemoryRepository, LifecycleRepository
 from .repositories.memory import InMemoryMemoryRepository, InMemoryLifecycleRepository
 from .repositories.postgres import PostgreSQLMemoryRepository, PostgreSQLAuditRepository, PostgreSQLLifecycleRepository
@@ -11,7 +11,7 @@ from .services.governance import GovernanceService
 from .services.lifecycle import LifecycleRunner, WorkerScheduler
 from .policy.broker import PolicyBroker
 
-db_type = os.environ.get("DATABASE_TYPE", "memory").strip().lower()
+db_type = settings.database_type
 
 if db_type == "postgres":
     _shared_repository: MemoryRepository = PostgreSQLMemoryRepository()
