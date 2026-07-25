@@ -5,9 +5,10 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any, Set, Tuple
 from uuid import UUID, uuid4
 
-from ..domain.enums import LifecycleJobStatus
+from ..domain.enums import LifecycleJobStatus, MemoryStatus, MemoryType, PolicyDecision, Sensitivity
 from ..domain.models import LifecycleRunHistory, MemoryRecord
-from ..repositories.base import LifecycleRepository
+from ..repositories.base import LifecycleRepository, MemoryRepository
+from datetime import timedelta
 
 logger = logging.getLogger("app.services.lifecycle")
 
@@ -197,3 +198,204 @@ def enforce_legal_hold(record: MemoryRecord) -> None:
     """
     if record.legal_hold:
         raise ValueError("Operation blocked: Memory record is under active legal hold.")
+
+
+class RetentionWorker(LifecycleWorker):
+    """
+    Scans active memories and logically deletes those that have expired.
+    """
+
+    def __init__(self, repository: MemoryRepository) -> None:
+        self.repository = repository
+
+    @property
+    def name(self) -> str:
+        return "retention_worker"
+
+    async def run(self, tenant_id: str, user_id: str, **kwargs) -> int:
+        now = kwargs.get("now") or datetime.now(timezone.utc)
+        
+        active_memories = await self.repository.list_by_status(
+            tenant_id, user_id, MemoryStatus.ACTIVE
+        )
+        
+        processed_count = 0
+        for record in active_memories:
+            if record.expires_at is not None and record.expires_at < now:
+                if record.legal_hold:
+                    logger.warning(f"Skipping expired memory {record.id} due to active legal hold.")
+                    continue
+                
+                await self.repository.delete(record.id, tenant_id, user_id)
+                processed_count += 1
+                
+        return processed_count
+
+
+class DecayWorker(LifecycleWorker):
+    """
+    Decays importance of active memories over time, archiving those that drop to 0 importance.
+    """
+
+    def __init__(self, repository: MemoryRepository) -> None:
+        self.repository = repository
+
+    @property
+    def name(self) -> str:
+        return "decay_worker"
+
+    async def run(self, tenant_id: str, user_id: str, **kwargs) -> int:
+        now = kwargs.get("now") or datetime.now(timezone.utc)
+        
+        decay_days = kwargs.get("decay_days", 30)
+        decay_seconds = kwargs.get("decay_seconds")
+        
+        threshold = timedelta(seconds=decay_seconds) if decay_seconds is not None else timedelta(days=decay_days)
+        
+        active_memories = await self.repository.list_by_status(
+            tenant_id, user_id, MemoryStatus.ACTIVE
+        )
+        
+        processed_count = 0
+        for record in active_memories:
+            if now - record.updated_at >= threshold:
+                if record.legal_hold:
+                    continue
+                
+                new_importance = max(0, record.importance - 1)
+                
+                updated_record = record.model_copy(deep=True)
+                updated_record.importance = new_importance
+                
+                if new_importance == 0:
+                    updated_record.status = MemoryStatus.ARCHIVED
+                    updated_record.archived_at = now
+                
+                await self.repository.update(updated_record)
+                processed_count += 1
+                
+        return processed_count
+
+
+class ReflectionWorker(LifecycleWorker):
+    """
+    Scans active memories to detect high lexical Jaccard overlap, generating PENDING merge proposals.
+    """
+
+    def __init__(self, repository: MemoryRepository) -> None:
+        self.repository = repository
+
+    @property
+    def name(self) -> str:
+        return "reflection_worker"
+
+    def _normalize_tokens(self, text: str) -> set:
+        import unicodedata
+        import re
+        if not text:
+            return set()
+        normalized = unicodedata.normalize("NFKC", text).lower()
+        cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", normalized)
+        return {token for token in cleaned.split() if token}
+
+    def _calculate_jaccard(self, text1: str, text2: str) -> float:
+        tokens1 = self._normalize_tokens(text1)
+        tokens2 = self._normalize_tokens(text2)
+        if not tokens1 or not tokens2:
+            return 0.0
+        intersection = tokens1.intersection(tokens2)
+        union = tokens1.union(tokens2)
+        return len(intersection) / len(union)
+
+    async def run(self, tenant_id: str, user_id: str, **kwargs) -> int:
+        threshold = kwargs.get("jaccard_threshold", 0.5)
+        
+        active_memories = await self.repository.list_by_status(
+            tenant_id, user_id, MemoryStatus.ACTIVE
+        )
+        
+        pending_memories = await self.repository.list_by_status(
+            tenant_id, user_id, MemoryStatus.PENDING
+        )
+        existing_proposal_keys = set()
+        for rec in pending_memories:
+            if rec.source_conversation_id == "reflection_proposal" and rec.source_excerpt:
+                if rec.source_excerpt.startswith("source_ids:"):
+                    source_ids_str = rec.source_excerpt.replace("source_ids:", "").split(",")
+                    source_ids = sorted(source_ids_str)
+                    existing_proposal_keys.add(tuple(source_ids))
+
+        processed_count = 0
+        n = len(active_memories)
+        
+        for i in range(n):
+            for j in range(i + 1, n):
+                rec1 = active_memories[i]
+                rec2 = active_memories[j]
+                
+                sim = self._calculate_jaccard(rec1.content, rec2.content)
+                if sim >= threshold:
+                    source_ids = sorted([str(rec1.id), str(rec2.id)])
+                    key = tuple(source_ids)
+                    
+                    if key in existing_proposal_keys:
+                        continue
+                        
+                    proposal = MemoryRecord(
+                        id=uuid4(),
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        content=f"Proposed Merge: {rec1.content} AND {rec2.content}",
+                        memory_type=rec1.memory_type,
+                        status=MemoryStatus.PENDING,
+                        sensitivity=max(rec1.sensitivity, rec2.sensitivity, key=lambda s: ["low", "medium", "high"].index(s.value)),
+                        importance=max(rec1.importance, rec2.importance),
+                        confidence=min(rec1.confidence, rec2.confidence),
+                        initial_policy_decision=PolicyDecision.PENDING_APPROVAL,
+                        initial_policy_reason="Generated by reflection loop Jaccard-overlap detection.",
+                        source_kind="chat",
+                        source_conversation_id="reflection_proposal",
+                        source_excerpt=f"source_ids:{rec1.id},{rec2.id}",
+                    )
+                    
+                    await self.repository.create(proposal)
+                    existing_proposal_keys.add(key)
+                    processed_count += 1
+                    
+        return processed_count
+
+
+class CompactionWorker(LifecycleWorker):
+    """
+    Wipes content and embedding vectors of logically deleted memories, preserving metadata.
+    """
+
+    def __init__(self, repository: MemoryRepository) -> None:
+        self.repository = repository
+
+    @property
+    def name(self) -> str:
+        return "compaction_worker"
+
+    async def run(self, tenant_id: str, user_id: str, **kwargs) -> int:
+        deleted_memories = await self.repository.list_by_status(
+            tenant_id, user_id, MemoryStatus.DELETED
+        )
+        
+        processed_count = 0
+        for record in deleted_memories:
+            if record.content == "[COMPACTED]" and record.embedding is None:
+                continue
+                
+            if record.legal_hold:
+                logger.warning(f"Skipping compaction for deleted memory {record.id} due to active legal hold.")
+                continue
+                
+            compacted_record = record.model_copy(deep=True)
+            compacted_record.content = "[COMPACTED]"
+            compacted_record.embedding = None
+            
+            await self.repository.update(compacted_record)
+            processed_count += 1
+            
+        return processed_count
