@@ -355,6 +355,11 @@ class GovernanceService:
                     "Memory was not found within the requested scope."
                 )
 
+            if existing.legal_hold:
+                raise GovernanceValidationError(
+                    "Cannot delete memory under active legal hold."
+                )
+
             if existing.status == MemoryStatus.DELETED:
                 return existing
 
