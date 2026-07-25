@@ -77,6 +77,37 @@ async def run_in_temp_conn(coro_func) -> Any:
         await conn.close()
 
 
+from ..services.observability import obs, trace_method, trace_class
+import time
+
+
+class ObsConnectionProxy:
+    def __init__(self, conn: asyncpg.Connection) -> None:
+        self._conn = conn
+
+    def __getattr__(self, name: str) -> Any:
+        attr = getattr(self._conn, name)
+        if callable(attr) and name in ("execute", "fetch", "fetchrow", "fetchval"):
+            async def wrapped(*args, **kwargs):
+                query = args[0] if args else "UNKNOWN"
+                sql_prefix = " ".join(query.strip().split()[:3]).upper()
+                start = time.perf_counter()
+                try:
+                    return await attr(*args, **kwargs)
+                except Exception as e:
+                    obs.record_error(
+                        error_type=type(e).__name__,
+                        message=str(e),
+                        location=f"db_query:{sql_prefix}"
+                    )
+                    raise
+                finally:
+                    duration = (time.perf_counter() - start) * 1000.0
+                    obs.record_metric("db_query_latency", round(duration, 3), tags={"query": sql_prefix})
+            return wrapped
+        return attr
+
+
 async def ensure_active_pool() -> None:
     """Helper to ensure the database manager has an active pool in the current event loop."""
     if db_manager.pool is not None:
@@ -94,11 +125,21 @@ async def get_connection() -> AsyncIterator[asyncpg.Connection]:
     """
     conn = db_tx_conn.get()
     if conn is not None:
-        yield conn
+        yield ObsConnectionProxy(conn)
     else:
         await ensure_active_pool()
+        pool = db_manager.pool
+        if pool is not None:
+            try:
+                total = pool.get_size()
+                idle = pool.get_idle_size()
+                obs.record_metric("connection_pool_total", total)
+                obs.record_metric("connection_pool_active", total - idle)
+                obs.record_metric("connection_pool_idle", idle)
+            except Exception:
+                pass
         async with db_manager.pool.acquire() as conn_acquired:
-            yield conn_acquired
+            yield ObsConnectionProxy(conn_acquired)
 
 
 class PostgresDictProxy(dict):
@@ -251,6 +292,7 @@ def row_to_audit_event(row: asyncpg.Record) -> AuditEvent:
     )
 
 
+@trace_class("repository")
 class PostgreSQLMemoryRepository(MemoryRepository):
     def __init__(self) -> None:
         self._records = PostgresDictProxy("memories")
@@ -608,6 +650,7 @@ class DateTimeEncoder(json.JSONEncoder):
         return super().default(o)
 
 
+@trace_class("repository")
 class PostgreSQLLifecycleRepository(LifecycleRepository):
 
     async def create_run(self, run: LifecycleRunHistory) -> LifecycleRunHistory:
