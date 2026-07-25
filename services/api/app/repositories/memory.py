@@ -62,10 +62,16 @@ class InMemoryMemoryRepository(MemoryRepository):
 
             # Verify terminal logical deletion
             if persisted.status == MemoryStatus.DELETED:
-                raise ValueError("Terminal deletion: cannot update a logically deleted memory record.")
+                is_compaction = (
+                    record.status == MemoryStatus.DELETED
+                    and record.content == "[COMPACTED]"
+                    and record.embedding is None
+                )
+                if not is_compaction:
+                    raise ValueError("Terminal deletion: cannot update a logically deleted memory record.")
                 
             # Enforce segregation of deletion
-            if record.status == MemoryStatus.DELETED:
+            if record.status == MemoryStatus.DELETED and persisted.status != MemoryStatus.DELETED:
                 raise ValueError("Segregation of deletion: logical deletion must occur via the delete() method.")
                 
             copied = record.model_copy(deep=True)
