@@ -1,13 +1,14 @@
 import os
-from .repositories.base import MemoryRepository
-from .repositories.memory import InMemoryMemoryRepository
-from .repositories.postgres import PostgreSQLMemoryRepository, PostgreSQLAuditRepository
+from .repositories.base import MemoryRepository, LifecycleRepository
+from .repositories.memory import InMemoryMemoryRepository, InMemoryLifecycleRepository
+from .repositories.postgres import PostgreSQLMemoryRepository, PostgreSQLAuditRepository, PostgreSQLLifecycleRepository
 from .repositories.transactions import TransactionManager
 from .services.embedding_factory import get_embedding_service
 from .services.retrieval import Retriever, Ranker, ContextComposer, RetrievalCoordinator
 from .services.retrieval_telemetry import StructuredRetrievalLogger
 from .services.audit import AuditService, InMemoryAuditService
 from .services.governance import GovernanceService
+from .services.lifecycle import LifecycleRunner, WorkerScheduler
 from .policy.broker import PolicyBroker
 
 db_type = os.environ.get("DATABASE_TYPE", "memory").strip().lower()
@@ -15,12 +16,16 @@ db_type = os.environ.get("DATABASE_TYPE", "memory").strip().lower()
 if db_type == "postgres":
     _shared_repository: MemoryRepository = PostgreSQLMemoryRepository()
     _shared_audit: AuditService = PostgreSQLAuditRepository()
+    _shared_lifecycle_repo: LifecycleRepository = PostgreSQLLifecycleRepository()
 else:
     _shared_repository: MemoryRepository = InMemoryMemoryRepository()
     _shared_audit: AuditService = InMemoryAuditService()
+    _shared_lifecycle_repo: LifecycleRepository = InMemoryLifecycleRepository()
 
 _shared_transaction_manager = TransactionManager()
 _shared_telemetry = StructuredRetrievalLogger()
+_shared_lifecycle_runner = LifecycleRunner(_shared_lifecycle_repo)
+_shared_worker_scheduler = WorkerScheduler(_shared_lifecycle_runner)
 
 
 def get_memory_repository() -> MemoryRepository:
@@ -33,6 +38,18 @@ def get_transaction_manager() -> TransactionManager:
 
 def get_audit_service() -> AuditService:
     return _shared_audit
+
+
+def get_lifecycle_repository() -> LifecycleRepository:
+    return _shared_lifecycle_repo
+
+
+def get_lifecycle_runner() -> LifecycleRunner:
+    return _shared_lifecycle_runner
+
+
+def get_worker_scheduler() -> WorkerScheduler:
+    return _shared_worker_scheduler
 
 
 def get_governance_service() -> GovernanceService:
