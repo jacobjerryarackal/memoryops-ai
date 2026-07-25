@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .enums import MemoryType, MemoryStatus, Sensitivity, PolicyDecision, AuditEventAction
+from .enums import MemoryType, MemoryStatus, Sensitivity, PolicyDecision, AuditEventAction, LifecycleJobStatus
 
 SLOT_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
@@ -74,6 +74,8 @@ class MemoryRecord(BaseModel):
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Record update timestamp")
     archived_at: Optional[datetime] = Field(None, description="Archival timestamp")
     deleted_at: Optional[datetime] = Field(None, description="Logical deletion timestamp")
+    legal_hold: bool = Field(False, description="Active legal hold status")
+    expires_at: Optional[datetime] = Field(None, description="Expiration timestamp for retention")
     identity_slot: Optional[str] = Field(
         None,
         description="Persisted mutation coordinate assigned at admission (immutable after admission, although repository-level enforcement is deferred to a subsequent step); must follow the canonical grammar or be None"
@@ -110,3 +112,14 @@ class AuditEvent(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Audit event metadata payload")
     trace_id: Optional[str] = Field(None, description="Correlated trace identifier")
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Event timestamp")
+
+
+class LifecycleRunHistory(BaseModel):
+    id: UUID = Field(default_factory=uuid4, description="Unique run history identifier")
+    job_name: str = Field(..., description="Name of the background lifecycle job")
+    status: LifecycleJobStatus = Field(..., description="Current status of the job execution")
+    started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Timestamp when job started")
+    completed_at: Optional[datetime] = Field(None, description="Timestamp when job completed")
+    error_message: Optional[str] = Field(None, description="Detailed error message if the job failed")
+    records_processed: int = Field(0, ge=0, description="Number of memory records processed during this run")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Custom metadata payload for job run details")

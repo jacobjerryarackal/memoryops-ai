@@ -47,3 +47,10 @@ class RetrievalMode(str, Enum):
     FALLBACK = "fallback"
     NONE = "none"
 
+
+class LifecycleJobStatus(str, Enum):
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
