@@ -7,8 +7,10 @@ from typing import Dict, List, Optional, Tuple
 from ..domain.models import MemoryRecord, LifecycleRunHistory
 from ..domain.enums import MemoryStatus, MemoryType, LifecycleJobStatus
 from .base import MemoryRepository, LifecycleRepository
+from ..services.observability import trace_class
 
 
+@trace_class("repository")
 class InMemoryMemoryRepository(MemoryRepository):
     def __init__(self) -> None:
         self._records: Dict[UUID, MemoryRecord] = {}
@@ -219,6 +221,7 @@ class InMemoryMemoryRepository(MemoryRepository):
             return [(r.model_copy(deep=True), sim) for r, sim in sliced]
 
 
+@trace_class("repository")
 class InMemoryLifecycleRepository(LifecycleRepository):
     def __init__(self) -> None:
         self._runs: Dict[UUID, LifecycleRunHistory] = {}
