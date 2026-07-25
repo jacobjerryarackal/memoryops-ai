@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 from uuid import UUID
 from typing import Dict, List, Optional, Tuple
 
-from ..domain.models import MemoryRecord
-from ..domain.enums import MemoryStatus, MemoryType
-from .base import MemoryRepository
+from ..domain.models import MemoryRecord, LifecycleRunHistory
+from ..domain.enums import MemoryStatus, MemoryType, LifecycleJobStatus
+from .base import MemoryRepository, LifecycleRepository
 
 
 class InMemoryMemoryRepository(MemoryRepository):
@@ -86,6 +86,10 @@ class InMemoryMemoryRepository(MemoryRepository):
             if persisted.tenant_id != tenant_id or persisted.user_id != user_id:
                 raise ValueError("Scope mismatch: unauthorized deletion attempt.")
                 
+            # Enforce legal hold gating (fail-closed)
+            if persisted.legal_hold:
+                raise ValueError("Operation blocked: Memory record is under active legal hold.")
+
             if persisted.status == MemoryStatus.DELETED:
                 return persisted.model_copy(deep=True)
                 
@@ -207,3 +211,58 @@ class InMemoryMemoryRepository(MemoryRepository):
 
             sliced = candidates_with_sim[:limit]
             return [(r.model_copy(deep=True), sim) for r, sim in sliced]
+
+
+class InMemoryLifecycleRepository(LifecycleRepository):
+    def __init__(self) -> None:
+        self._runs: Dict[UUID, LifecycleRunHistory] = {}
+        self._lock = asyncio.Lock()
+
+    async def create_run(self, run: LifecycleRunHistory) -> LifecycleRunHistory:
+        async with self._lock:
+            if run.id in self._runs:
+                raise ValueError(f"Duplicate key: Run with ID {run.id} already exists.")
+            copied = run.model_copy(deep=True)
+            self._runs[run.id] = copied
+            return copied.model_copy(deep=True)
+
+    async def update_run(self, run: LifecycleRunHistory) -> LifecycleRunHistory:
+        async with self._lock:
+            if run.id not in self._runs:
+                raise ValueError(f"Missing target: Run with ID {run.id} does not exist.")
+            copied = run.model_copy(deep=True)
+            self._runs[run.id] = copied
+            return copied.model_copy(deep=True)
+
+    async def get_run_by_id(self, run_id: UUID) -> Optional[LifecycleRunHistory]:
+        async with self._lock:
+            persisted = self._runs.get(run_id)
+            if persisted is None:
+                return None
+            return persisted.model_copy(deep=True)
+
+    async def list_runs(
+        self, job_name: Optional[str] = None, limit: int = 100
+    ) -> List[LifecycleRunHistory]:
+        async with self._lock:
+            runs_list = list(self._runs.values())
+            if job_name is not None:
+                runs_list = [r for r in runs_list if r.job_name == job_name]
+            
+            runs_list.sort(key=lambda r: r.id)
+            runs_list.sort(key=lambda r: r.started_at, reverse=True)
+            
+            sliced = runs_list[:limit]
+            return [r.model_copy(deep=True) for r in sliced]
+
+    async def is_job_running(self, job_name: str, tenant_id: str, user_id: str) -> bool:
+        async with self._lock:
+            for run in self._runs.values():
+                if (
+                    run.job_name == job_name
+                    and run.status == LifecycleJobStatus.RUNNING
+                    and run.metadata.get("tenant_id") == tenant_id
+                    and run.metadata.get("user_id") == user_id
+                ):
+                    return True
+            return False
