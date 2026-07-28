@@ -470,3 +470,57 @@ async def test_gateway_integration_downstream_non_embedding_errors_propagate():
     # Downstream non-embedding exception should propagate (re-raised as 500 or raises client error)
     with pytest.raises(ConnectionError, match="Database went offline"):
         client.post("/api/chat", json=payload)
+
+
+def test_gateway_chat_write_path_save():
+    payload = {
+        "tenant_id": "tenant_test",
+        "user_id": "user_test",
+        "message": "Remember that I prefer python for backend systems.",
+        "temporary_chat": False,
+    }
+    response = client.post("/api/chat", json=payload)
+    assert response.status_code == 200
+
+    data = response.json()
+    assert len(data["candidate_memories"]) == 1
+    cand = data["candidate_memories"][0]
+    assert cand["content"] == "User prefers python for backend systems."
+    assert cand["memory_type"] == "procedural"
+    assert cand["decision"] == "SAVE"
+    assert cand["memory_id"] is not None
+    assert len(data["audit_event_ids"]) == 1
+
+
+def test_gateway_chat_write_path_block_secret():
+    payload = {
+        "tenant_id": "tenant_test",
+        "user_id": "user_test",
+        "message": "Remember that my API key is sk-test-123456789abcdefghij.",
+        "temporary_chat": False,
+    }
+    response = client.post("/api/chat", json=payload)
+    assert response.status_code == 200
+
+    data = response.json()
+    assert len(data["candidate_memories"]) == 1
+    cand = data["candidate_memories"][0]
+    assert cand["decision"] == "BLOCK"
+    assert cand["memory_id"] is None
+    assert len(data["audit_event_ids"]) == 1
+
+
+def test_gateway_chat_write_path_temporary_bypass():
+    payload = {
+        "tenant_id": "tenant_test",
+        "user_id": "user_test",
+        "message": "Remember that I prefer casual one-line answers.",
+        "temporary_chat": True,
+    }
+    response = client.post("/api/chat", json=payload)
+    assert response.status_code == 200
+
+    data = response.json()
+    assert len(data["candidate_memories"]) == 0
+    assert len(data["audit_event_ids"]) == 0
+
