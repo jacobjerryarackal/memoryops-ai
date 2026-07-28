@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, FormEvent } from "react";
 import {
   api,
   AuditEvent,
   CandidateMemory,
-  ChatResponse,
   MemoryRecord,
   TenantMetrics,
   UsedMemory,
@@ -39,14 +38,17 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<"memories" | "audit" | "metrics">("memories");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [typeFilter, setTypeFilter] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState<string>("");
 
   // UI Flow States
   const [connectionStatus, setConnectionStatus] = useState<"checking" | "connected" | "disconnected">("checking");
+  const [systemVersion, setSystemVersion] = useState("1.0.0");
   const [chatLoading, setChatLoading] = useState(false);
   const [govLoading, setGovLoading] = useState(false);
   const [editMemory, setEditMemory] = useState<MemoryRecord | null>(null);
   const [editContent, setEditContent] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // Load all dashboard statistics & memory items
   const loadDashboardData = async (tId = tenantId, uId = userId) => {
@@ -54,8 +56,11 @@ export default function Home() {
     setActionError(null);
     try {
       // 1. Verify backend health using the documented healthz endpoint
-      await api.checkHealth();
+      const health = await api.checkHealth();
       setConnectionStatus("connected");
+      if (health && health.version) {
+        setSystemVersion(health.version);
+      }
 
       // 2. Fetch metrics
       const fetchedMetrics = await api.getMetrics(tId);
@@ -88,7 +93,7 @@ export default function Home() {
   }, [tenantId, userId, statusFilter, typeFilter]);
 
   // Handle chat submission
-  const handleSendChat = async (e?: React.FormEvent) => {
+  const handleSendChat = async (e?: FormEvent) => {
     if (e) e.preventDefault();
     if (!message.trim() || chatLoading) return;
 
@@ -152,7 +157,7 @@ export default function Home() {
   };
 
   // Perform content edit update (PATCH)
-  const handleEditContentSubmit = async (e: React.FormEvent) => {
+  const handleEditContentSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!editMemory) return;
     setActionError(null);
@@ -187,559 +192,759 @@ export default function Home() {
     setMessage(text);
   };
 
+  // Helper to format timestamps gracefully
+  const formatMessageTime = (date: Date | undefined) => {
+    if (!date) return "Just now";
+    try {
+      return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    } catch {
+      return "Just now";
+    }
+  };
+
+  // Local filter for search queries
+  const filteredMemories = memories.filter((m) =>
+    m.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (m.identity_slot && m.identity_slot.toLowerCase().includes(searchQuery.toLowerCase()))
+  );
+
   return (
-    <div className="flex-1 flex flex-col h-screen min-h-screen">
-      {/* Top Header Panel */}
-      <header className="px-6 py-4 flex items-center justify-between border-b border-[rgba(255,255,255,0.08)] bg-[rgba(10,14,23,0.7)] backdrop-blur-md z-10">
-        <div className="flex items-center gap-3">
-          <div className="h-3 w-3 rounded-full bg-[#00f0ff] animate-pulse"></div>
-          <h1 className="text-xl font-bold tracking-tight bg-gradient-to-r from-[#00f0ff] to-[#8b5cf6] bg-clip-text text-transparent">
-            MemoryOps AI <span className="text-sm font-semibold text-[rgba(255,255,255,0.5)]">v0.5.0 Control Panel</span>
-          </h1>
+    <div className="flex-1 flex flex-col lg:flex-row h-screen min-h-screen bg-[#090a0f] text-[#e4e7eb] font-sans antialiased overflow-hidden">
+      
+      {/* 1. Left Collapsible Sidebar */}
+      <aside
+        className={`bg-[#0d0f16] border-r border-white/5 flex flex-col transition-all duration-300 ease-in-out z-20 ${
+          sidebarOpen ? "w-full lg:w-72" : "w-0 lg:w-0 overflow-hidden border-none"
+        }`}
+        aria-label="Configuration Settings"
+      >
+        <div className="p-5 flex items-center justify-between border-b border-white/5">
+          <div className="flex items-center gap-2.5">
+            <div className="h-2 w-2 rounded-full bg-[#00f0ff] animate-pulse"></div>
+            <span className="font-bold text-sm tracking-wide uppercase text-white">MemoryOps Control</span>
+          </div>
+          <button
+            onClick={() => setSidebarOpen(false)}
+            className="lg:hidden text-gray-400 hover:text-white focus:outline-none"
+            aria-label="Close Sidebar"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
 
-        {/* Backend Connection Indicator & Scope Configuration */}
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-[rgba(255,255,255,0.4)]">Backend:</span>
-            {connectionStatus === "checking" && (
-              <span className="text-xs font-semibold text-amber-400">Checking...</span>
-            )}
-            {connectionStatus === "connected" && (
-              <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span> Connected
-              </span>
-            )}
-            {connectionStatus === "disconnected" && (
-              <span className="text-xs font-semibold text-rose-500 flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-rose-500"></span> Disconnected
-              </span>
-            )}
-          </div>
-
-          {/* Tenant and User Scope select */}
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-[rgba(255,255,255,0.4)]" htmlFor="tenant-input">Tenant:</label>
-            <input
-              id="tenant-input"
-              type="text"
-              className="glass-input text-xs py-1.5 px-3 max-w-[120px]"
-              value={tenantId}
-              onChange={(e) => setTenantId(e.target.value)}
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-[rgba(255,255,255,0.4)]" htmlFor="user-input">User:</label>
-            <input
-              id="user-input"
-              type="text"
-              className="glass-input text-xs py-1.5 px-3 max-w-[120px]"
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-            />
-          </div>
-        </div>
-      </header>
-
-      {/* Error Overlay banner */}
-      {actionError && (
-        <div className="bg-rose-500/15 border-b border-rose-500/30 text-rose-300 text-xs px-6 py-2.5 flex items-center justify-between">
-          <span><strong>Invariance/Policy Alert:</strong> {actionError}</span>
-          <button onClick={() => setActionError(null)} className="text-rose-300 hover:text-white font-bold">✖</button>
-        </div>
-      )}
-
-      {/* Main Workspace Layout */}
-      <main className="flex-1 flex overflow-hidden">
-        {/* Left Side Column: Chat interface */}
-        <section className="w-[40%] border-r border-[rgba(255,255,255,0.08)] flex flex-col bg-[rgba(8,11,16,0.5)]">
-          {/* Scrollable messages space */}
-          <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
-            {chatHistory.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center text-center p-8 opacity-60">
-                <span className="text-4xl mb-4">🧠</span>
-                <h3 className="text-sm font-semibold mb-2">Initialize Cognitive Stream</h3>
-                <p className="text-xs max-w-xs text-[rgba(255,255,255,0.5)]">
-                  Start messaging to extract and retrieve scoped memories. Try using the shortcut prompts below:
-                </p>
-                <div className="flex flex-col gap-2 mt-4 w-full max-w-xs">
-                  <button
-                    onClick={() => loadPromptShortcut("Remember that I prefer python for backend systems.")}
-                    className="text-left text-xs bg-white/5 border border-white/5 hover:border-[#00f0ff]/20 p-2.5 rounded-lg hover:bg-white/10 transition"
-                  >
-                    "Remember that I prefer python for backend systems."
-                  </button>
-                  <button
-                    onClick={() => loadPromptShortcut("My OpenAI API key is sk-proj-123456789012345678901234")}
-                    className="text-left text-xs bg-white/5 border border-white/5 hover:border-red-500/20 p-2.5 rounded-lg hover:bg-white/10 transition"
-                  >
-                    "My API Key is sk-proj-123456789012345678901234" (Safety Block Test)
-                  </button>
-                  <button
-                    onClick={() => loadPromptShortcut("Remember that I prefer rust for system code.")}
-                    className="text-left text-xs bg-white/5 border border-white/5 hover:border-amber-500/20 p-2.5 rounded-lg hover:bg-white/10 transition"
-                  >
-                    "Remember that I prefer rust for system code."
-                  </button>
-                </div>
-              </div>
-            ) : (
-              chatHistory.map((item, index) => (
-                <div
-                  key={index}
-                  className={`flex flex-col gap-2 animate-fade-in ${
-                    item.sender === "user" ? "items-end" : "items-start"
-                  }`}
-                >
-                  <div className="text-[10px] text-[rgba(255,255,255,0.4)] px-1">
-                    {item.sender === "user" ? "User Scope" : "Cognitive Assistant"}
-                  </div>
-                  <div
-                    className={`max-w-[85%] rounded-xl px-4 py-3 text-sm ${
-                      item.sender === "user"
-                        ? "bg-[#8b5cf6]/20 border border-[#8b5cf6]/40 text-[#f3f5f9]"
-                        : "bg-[rgba(20,26,38,0.7)] border border-[rgba(255,255,255,0.08)] text-[#f3f5f9]"
-                    }`}
-                  >
-                    {item.text}
-                  </div>
-
-                  {/* Explainability metadata blocks */}
-                  {item.sender === "assistant" && (item.usedMemories?.length || item.candidateMemories?.length) && (
-                    <div className="w-full max-w-[90%] mt-2 p-3 bg-black/25 border border-white/5 rounded-lg flex flex-col gap-3">
-                      
-                      {/* Read Path: Used Memories */}
-                      {item.usedMemories && item.usedMemories.length > 0 && (
-                        <div>
-                          <div className="text-[10px] font-bold tracking-wider uppercase text-emerald-400 mb-1.5">
-                            Read Path: Used Memories ({item.usedMemories.length})
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            {item.usedMemories.map((m, mIdx) => (
-                              <div key={mIdx} className="bg-white/5 p-2 rounded border border-white/5 text-[11px]">
-                                <div className="flex items-center justify-between font-mono text-[10px] mb-1">
-                                  <span className="text-[rgba(255,255,255,0.4)]">ID: {m.memory_id.substring(0, 8)}...</span>
-                                  <span className="text-[#00f0ff]">Match Score: {(m.score * 100).toFixed(0)}%</span>
-                                </div>
-                                <p className="text-white mb-1">"{m.content}"</p>
-                                {/* Score breakdown bars */}
-                                <div className="grid grid-cols-3 gap-x-2 gap-y-1 font-mono text-[9px] text-[rgba(255,255,255,0.4)] border-t border-white/5 pt-1 mt-1">
-                                  <div>Sem: {m.score_breakdown.semantic_score.toFixed(2)}</div>
-                                  <div>Key: {m.score_breakdown.keyword_score.toFixed(2)}</div>
-                                  <div>Imp: {m.score_breakdown.importance_score.toFixed(2)}</div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Write Path: Candidate Memories */}
-                      {item.candidateMemories && item.candidateMemories.length > 0 && (
-                        <div>
-                          <div className="text-[10px] font-bold tracking-wider uppercase text-[#8b5cf6] mb-1.5">
-                            Write Path: Extracted Candidate Decisions
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            {item.candidateMemories.map((cm, cmIdx) => (
-                              <div key={cmIdx} className="bg-white/5 p-2 rounded border border-white/5 text-[11px]">
-                                <div className="flex items-center justify-between mb-1">
-                                  <span className="font-semibold text-white">"{cm.content}"</span>
-                                  <span
-                                    className={`badge ${
-                                      cm.decision === "SAVE"
-                                        ? "badge-active"
-                                        : cm.decision === "BLOCK"
-                                        ? "badge-rejected"
-                                        : "badge-pending"
-                                    }`}
-                                  >
-                                    {cm.decision}
-                                  </span>
-                                </div>
-                                <div className="font-mono text-[9px] text-[rgba(255,255,255,0.5)]">
-                                  Reason: {cm.reason}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {item.traceId && (
-                        <div className="text-[9px] font-mono text-[rgba(255,255,255,0.3)] text-right">
-                          Trace ID: {item.traceId}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-
-          {/* Message input console */}
-          <form onSubmit={handleSendChat} className="p-4 border-t border-[rgba(255,255,255,0.08)] bg-[rgba(10,14,23,0.9)] flex flex-col gap-3">
-            {/* Temporary chat switch */}
-            <div className="flex items-center justify-between">
-              <label htmlFor="temp-chat-toggle" className="flex items-center gap-2 cursor-pointer">
+        <div className="flex-1 overflow-y-auto p-5 space-y-6">
+          {/* Coordinates section */}
+          <div className="space-y-4">
+            <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Scope Coordinates</h3>
+            <div className="space-y-3">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-gray-400" htmlFor="tenant-input">Tenant ID</label>
                 <input
-                  id="temp-chat-toggle"
-                  type="checkbox"
-                  className="rounded border-[rgba(255,255,255,0.15)] bg-black/40 text-[#00f0ff] focus:ring-0 focus:ring-offset-0"
-                  checked={temporaryChat}
-                  onChange={(e) => setTemporaryChat(e.target.checked)}
+                  id="tenant-input"
+                  type="text"
+                  className="glass-input focus-ring w-full text-xs font-mono"
+                  value={tenantId}
+                  onChange={(e) => setTenantId(e.target.value)}
                 />
-                <span className="text-[11px] text-[rgba(255,255,255,0.5)] font-mono">
-                  Temporary Chat (Bypass Persistent Storage Write/Read)
-                </span>
-              </label>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-gray-400" htmlFor="user-input">User ID</label>
+                <input
+                  id="user-input"
+                  type="text"
+                  className="glass-input focus-ring w-full text-xs font-mono"
+                  value={userId}
+                  onChange={(e) => setUserId(e.target.value)}
+                />
+              </div>
             </div>
+          </div>
 
+          {/* Quick Prompts shortcuts */}
+          <div className="space-y-3">
+            <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Quick Seed Prompts</h3>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => loadPromptShortcut("Remember that I prefer python for backend systems.")}
+                className="text-left text-xs bg-white/3 border border-white/5 hover:border-[#00f0ff]/20 p-2.5 rounded-md hover:bg-white/5 transition focus-ring text-gray-300"
+              >
+                "Remember that I prefer python for backend systems."
+              </button>
+              <button
+                onClick={() => loadPromptShortcut("Remember that I prefer rust for system code.")}
+                className="text-left text-xs bg-white/3 border border-white/5 hover:border-[#00f0ff]/20 p-2.5 rounded-md hover:bg-white/5 transition focus-ring text-gray-300"
+              >
+                "Remember that I prefer rust for system code."
+              </button>
+              <button
+                onClick={() => loadPromptShortcut("My OpenAI API key is sk-proj-123456789012345678901234")}
+                className="text-left text-xs bg-red-500/5 border border-red-500/10 hover:border-red-500/30 p-2.5 rounded-md hover:bg-red-500/10 transition focus-ring text-red-300/80"
+              >
+                "My API Key is sk-proj-..." (Safety Block Test)
+              </button>
+            </div>
+          </div>
+
+          {/* System Health checklist */}
+          <div className="space-y-3 pt-2">
+            <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Readiness status</h3>
+            <div className="bg-black/20 rounded-md p-3.5 border border-white/5 space-y-2.5">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-400">Database Engine</span>
+                <span className="text-emerald-400 font-mono">Ready</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-400">Policy Rules</span>
+                <span className="text-emerald-400 font-mono">Enforced</span>
+              </div>
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-gray-400">Embedding Engine</span>
+                <span className="text-emerald-400 font-mono">Connected</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer info */}
+        <div className="p-5 border-t border-white/5 text-[10px] text-gray-500 font-mono flex flex-col gap-1">
+          <div>Workspace: jacobjerryarackal</div>
+          <div>Branch: frozen-mvp</div>
+        </div>
+      </aside>
+
+      {/* 2. Main Workspace */}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        
+        {/* Top bar panel */}
+        <header className="h-14 px-6 border-b border-white/5 flex items-center justify-between bg-[#0d0f16]/40 backdrop-blur-md z-10">
+          <div className="flex items-center gap-3">
+            {!sidebarOpen && (
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="text-gray-400 hover:text-white mr-1 focus:outline-none focus:ring-1 focus:ring-[#00f0ff] p-1 rounded"
+                aria-label="Open Configuration Sidebar"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                </svg>
+              </button>
+            )}
+            <h1 className="text-sm font-semibold tracking-tight text-white flex items-center gap-2">
+              MemoryOps AI Dashboard
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/5 text-gray-400 border border-white/5">
+                v{systemVersion}
+              </span>
+            </h1>
+          </div>
+
+          <div className="flex items-center gap-4">
+            {/* Status indicators */}
+            <div className="flex items-center gap-2.5">
+              {connectionStatus === "checking" && (
+                <span className="text-[11px] font-mono text-amber-400 animate-pulse">Syncing...</span>
+              )}
+              {connectionStatus === "connected" && (
+                <div className="flex items-center gap-1.5 bg-emerald-500/5 border border-emerald-500/10 rounded-full px-2.5 py-0.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400"></span>
+                  <span className="text-[10px] font-mono text-emerald-400 uppercase tracking-wider">Online</span>
+                </div>
+              )}
+              {connectionStatus === "disconnected" && (
+                <div className="flex items-center gap-1.5 bg-red-500/5 border border-red-500/10 rounded-full px-2.5 py-0.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-ping"></span>
+                  <span className="text-[10px] font-mono text-red-500 uppercase tracking-wider">Offline</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </header>
+
+        {/* Invariance error banners */}
+        {actionError && (
+          <div
+            className="bg-red-500/8 border-b border-red-500/20 text-red-300 text-xs px-6 py-3 flex items-center justify-between gap-4 animate-fade-in"
+            role="alert"
+          >
             <div className="flex items-center gap-2">
-              <input
-                id="chat-input"
-                type="text"
-                className="flex-1 glass-input"
-                placeholder="Talk to MemoryOps AI..."
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                disabled={chatLoading}
-              />
-              <button
-                type="submit"
-                className="btn-primary"
-                disabled={chatLoading || !message.trim()}
-              >
-                {chatLoading ? "Processing..." : "Send"}
-              </button>
+              <span className="text-sm">⚠️</span>
+              <span><strong>Policy Violation:</strong> {actionError}</span>
             </div>
-          </form>
-        </section>
-
-        {/* Right Side Column: Governance and Dashboard Control Plane */}
-        <section className="w-[60%] flex flex-col bg-[rgba(6,9,14,0.4)]">
-          {/* Tab Navigation */}
-          <div className="border-b border-[rgba(255,255,255,0.08)] flex justify-between items-center px-6">
-            <nav className="flex gap-4">
-              <button
-                onClick={() => setActiveTab("memories")}
-                className={`py-4 px-1 text-sm font-semibold border-b-2 transition-all ${
-                  activeTab === "memories"
-                    ? "border-[#00f0ff] text-[#00f0ff] glow-text"
-                    : "border-transparent text-[rgba(255,255,255,0.5)] hover:text-white"
-                }`}
-              >
-                Memories Registry
-              </button>
-              <button
-                onClick={() => setActiveTab("audit")}
-                className={`py-4 px-1 text-sm font-semibold border-b-2 transition-all ${
-                  activeTab === "audit"
-                    ? "border-[#00f0ff] text-[#00f0ff] glow-text"
-                    : "border-transparent text-[rgba(255,255,255,0.5)] hover:text-white"
-                }`}
-              >
-                Audit Stream
-              </button>
-              <button
-                onClick={() => setActiveTab("metrics")}
-                className={`py-4 px-1 text-sm font-semibold border-b-2 transition-all ${
-                  activeTab === "metrics"
-                    ? "border-[#00f0ff] text-[#00f0ff] glow-text"
-                    : "border-transparent text-[rgba(255,255,255,0.5)] hover:text-white"
-                }`}
-              >
-                System Analytics
-              </button>
-            </nav>
-
             <button
-              onClick={() => loadDashboardData()}
-              className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5"
-              disabled={govLoading}
+              onClick={() => setActionError(null)}
+              className="text-red-300 hover:text-white font-bold p-1 focus:outline-none"
+              aria-label="Dismiss Error"
             >
-              {govLoading ? "Syncing..." : "Sync Dashboard"}
+              ✖
             </button>
           </div>
+        )}
 
-          {/* Scrollable Tab Views container */}
-          <div className="flex-1 overflow-y-auto p-6">
-            
-            {/* View 1: Memories List & Actions */}
-            {activeTab === "memories" && (
-              <div className="space-y-6">
-                
-                {/* Filters */}
-                <div className="glass-panel p-4 flex gap-4 items-center">
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs text-[rgba(255,255,255,0.5)]" htmlFor="status-select">Status:</label>
-                    <select
-                      id="status-select"
-                      className="glass-input text-xs py-1.5"
-                      value={statusFilter}
-                      onChange={(e) => setStatusFilter(e.target.value)}
-                    >
-                      <option value="">All Scopes (Active/Pending/Arch/Rej)</option>
-                      <option value="active">Active only</option>
-                      <option value="pending">Pending review</option>
-                      <option value="archived">Archived</option>
-                      <option value="rejected">Rejected</option>
-                      <option value="deleted">Deleted (Exclusion Check)</option>
-                    </select>
+        {/* Content panes split */}
+        <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-w-0">
+          
+          {/* A. Left Pane: Dynamic Chat Loop */}
+          <section
+            className="w-full lg:w-[42%] border-b lg:border-b-0 lg:border-r border-white/5 flex flex-col bg-[#090a0f]/60 overflow-hidden"
+            aria-label="Cognitive Chat stream"
+          >
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {chatHistory.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-center p-6 space-y-4">
+                  <div className="h-12 w-12 rounded-xl bg-white/3 border border-white/5 flex items-center justify-center text-lg text-gray-400">
+                    🧠
                   </div>
-
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs text-[rgba(255,255,255,0.5)]" htmlFor="type-select">Type:</label>
-                    <select
-                      id="type-select"
-                      className="glass-input text-xs py-1.5"
-                      value={typeFilter}
-                      onChange={(e) => setTypeFilter(e.target.value)}
-                    >
-                      <option value="">All Types</option>
-                      <option value="semantic">Semantic (Facts)</option>
-                      <option value="procedural">Procedural (Preferences)</option>
-                      <option value="episodic">Episodic (Events)</option>
-                    </select>
+                  <div className="space-y-1">
+                    <h3 className="text-xs font-semibold text-white">Cognitive Interaction Loop</h3>
+                    <p className="text-[11px] text-gray-500 max-w-[240px] leading-relaxed">
+                      Send a chat message to propose or retrieve memories scoped under current tenant.
+                    </p>
                   </div>
                 </div>
+              ) : (
+                chatHistory.map((item, index) => (
+                  <div
+                    key={index}
+                    className={`flex flex-col gap-1.5 animate-fade-in ${
+                      item.sender === "user" ? "items-end" : "items-start"
+                    }`}
+                  >
+                    <div className="text-[9px] font-mono text-gray-500 px-1 flex items-center gap-1.5">
+                      <span>{item.sender === "user" ? "USER" : "ASSISTANT"}</span>
+                      <span>•</span>
+                      <span>{formatMessageTime(item.timestamp)}</span>
+                    </div>
+                    
+                    <div
+                      className={`max-w-[85%] rounded-lg px-3.5 py-2.5 text-xs leading-relaxed ${
+                        item.sender === "user"
+                          ? "bg-[#252836] border border-white/10 text-white font-medium shadow-md"
+                          : "bg-[#141620] border border-white/5 text-gray-200"
+                      }`}
+                    >
+                      {item.text}
+                    </div>
 
-                {/* Listing */}
-                <div className="space-y-3">
-                  {memories.length === 0 ? (
-                    <div className="text-center p-8 bg-[rgba(255,255,255,0.02)] border border-white/5 rounded-lg text-xs text-[rgba(255,255,255,0.4)]">
-                      No memories match the current filters or user scopes.
+                    {/* Explainability panel details */}
+                    {item.sender === "assistant" &&
+                      (!!(item.usedMemories?.length) || !!(item.candidateMemories?.length)) && (
+                        <div className="w-full max-w-[90%] mt-1.5 p-3 bg-black/20 border border-white/5 rounded-md space-y-3">
+                          
+                          {/* Memories referenced */}
+                          {item.usedMemories && item.usedMemories.length > 0 && (
+                            <div className="space-y-2">
+                              <span className="text-[9px] font-semibold text-emerald-400 tracking-wider uppercase block">
+                                Read Path: Referenced Memories ({item.usedMemories.length})
+                              </span>
+                              <div className="flex flex-col gap-2">
+                                {item.usedMemories.map((m, mIdx) => (
+                                  <div key={mIdx} className="bg-white/2 p-2 rounded border border-white/5 text-[11px] space-y-1">
+                                    <div className="flex justify-between items-center text-[9px] font-mono text-gray-500">
+                                      <span>ID: {m.memory_id.substring(0, 8)}...</span>
+                                      <span className="text-[#00f0ff] font-semibold">
+                                        Score: {(m.score * 100).toFixed(0)}%
+                                      </span>
+                                    </div>
+                                    <p className="text-gray-300">"{m.content}"</p>
+                                    
+                                    {/* Breakdown bars */}
+                                    <div className="space-y-1 pt-1 border-t border-white/5 mt-1 text-[9px] font-mono">
+                                      <div className="text-gray-500">Reason: {m.reason}</div>
+                                      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-gray-500 text-[8px]">
+                                        <div className="flex justify-between">
+                                          <span>Semantic:</span>
+                                          <span>{m.score_breakdown.semantic_score.toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span>Keyword:</span>
+                                          <span>{m.score_breakdown.keyword_score.toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span>Importance:</span>
+                                          <span>{m.score_breakdown.importance_score.toFixed(2)}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                          <span>Recency:</span>
+                                          <span>{m.score_breakdown.recency_score.toFixed(2)}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Candidate decisions */}
+                          {item.candidateMemories && item.candidateMemories.length > 0 && (
+                            <div className="space-y-2">
+                              <span className="text-[9px] font-semibold text-[#8b5cf6] tracking-wider uppercase block">
+                                Write Path: Extracted Candidate Decisions
+                              </span>
+                              <div className="flex flex-col gap-2">
+                                {item.candidateMemories.map((cm, cmIdx) => (
+                                  <div key={cmIdx} className="bg-white/2 p-2 rounded border border-white/5 text-[11px] space-y-1">
+                                    <div className="flex justify-between items-start gap-2">
+                                      <span className="text-gray-300 font-medium leading-relaxed">"{cm.content}"</span>
+                                      <span
+                                        className={`badge flex-shrink-0 ${
+                                          cm.decision === "SAVE"
+                                            ? "badge-active"
+                                            : cm.decision === "BLOCK"
+                                            ? "badge-rejected"
+                                            : "badge-pending"
+                                        }`}
+                                      >
+                                        {cm.decision}
+                                      </span>
+                                    </div>
+                                    <div className="text-[9px] font-mono text-gray-500">
+                                      Reason: {cm.reason}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {item.traceId && (
+                            <div className="text-[8px] font-mono text-gray-600 text-right pt-0.5 border-t border-white/2">
+                              Trace ID: {item.traceId}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Form Input console */}
+            <form
+              onSubmit={handleSendChat}
+              className="p-4 border-t border-white/5 bg-[#0d0f16]/50 flex flex-col gap-3"
+            >
+              <div className="flex items-center justify-between">
+                <label htmlFor="temp-chat-toggle" className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    id="temp-chat-toggle"
+                    type="checkbox"
+                    className="h-3.5 w-3.5 rounded border-white/10 bg-black/40 text-[#00f0ff] focus:ring-0 focus:ring-offset-0"
+                    checked={temporaryChat}
+                    onChange={(e) => setTemporaryChat(e.target.checked)}
+                  />
+                  <span className="text-[10px] text-gray-400 font-mono tracking-wide uppercase">
+                    Bypass persistence (Temporary Chat)
+                  </span>
+                </label>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  id="chat-input"
+                  type="text"
+                  className="flex-1 glass-input focus-ring"
+                  placeholder="Propose facts or preferences..."
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  disabled={chatLoading}
+                  autoComplete="off"
+                />
+                <button
+                  type="submit"
+                  className="btn-primary focus-ring h-[34px]"
+                  disabled={chatLoading || !message.trim()}
+                >
+                  {chatLoading ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="h-2 w-2 rounded-full bg-black animate-ping"></span>
+                      Syncing
+                    </span>
+                  ) : (
+                    "Send"
+                  )}
+                </button>
+              </div>
+            </form>
+          </section>
+
+          {/* B. Right Pane: Governance Dashboard */}
+          <section
+            className="flex-1 flex flex-col bg-[#090a0f]/20 overflow-hidden min-w-0"
+            aria-label="Governance Control Plane"
+          >
+            {/* View navigation Tabs */}
+            <div className="h-12 border-b border-white/5 flex justify-between items-center px-6 bg-[#0d0f16]/30">
+              <nav className="flex gap-5" role="tablist">
+                <button
+                  role="tab"
+                  aria-selected={activeTab === "memories"}
+                  onClick={() => setActiveTab("memories")}
+                  className={`h-12 text-xs font-semibold tracking-wider uppercase border-b-2 transition-all ${
+                    activeTab === "memories"
+                      ? "border-[#00f0ff] text-white"
+                      : "border-transparent text-gray-400 hover:text-white"
+                  }`}
+                >
+                  Registry
+                </button>
+                <button
+                  role="tab"
+                  aria-selected={activeTab === "audit"}
+                  onClick={() => setActiveTab("audit")}
+                  className={`h-12 text-xs font-semibold tracking-wider uppercase border-b-2 transition-all ${
+                    activeTab === "audit"
+                      ? "border-[#00f0ff] text-white"
+                      : "border-transparent text-gray-400 hover:text-white"
+                  }`}
+                >
+                  Audit Trail
+                </button>
+                <button
+                  role="tab"
+                  aria-selected={activeTab === "metrics"}
+                  onClick={() => setActiveTab("metrics")}
+                  className={`h-12 text-xs font-semibold tracking-wider uppercase border-b-2 transition-all ${
+                    activeTab === "metrics"
+                      ? "border-[#00f0ff] text-white"
+                      : "border-transparent text-gray-400 hover:text-white"
+                  }`}
+                >
+                  Metrics
+                </button>
+              </nav>
+
+              <button
+                onClick={() => loadDashboardData()}
+                className="btn-secondary text-[11px] py-1 px-3 h-7 flex items-center focus-ring"
+                disabled={govLoading}
+              >
+                {govLoading ? "Syncing..." : "Sync"}
+              </button>
+            </div>
+
+            {/* Scrollable dashboard container */}
+            <div className="flex-1 overflow-y-auto p-5">
+              
+              {/* Tab 1: Memories list */}
+              {activeTab === "memories" && (
+                <div className="space-y-4">
+                  {/* Search and Filters toolbar */}
+                  <div className="bg-[#11131c]/50 p-3 rounded-lg border border-white/5 flex flex-col md:flex-row gap-3 items-center justify-between">
+                    <input
+                      type="text"
+                      placeholder="Search memory payload or slot..."
+                      className="glass-input text-xs w-full md:max-w-xs focus-ring"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                    
+                    <div className="flex gap-2 w-full md:w-auto items-center justify-end">
+                      <select
+                        aria-label="Filter status"
+                        className="glass-input text-[11px] py-1.5 focus-ring"
+                        value={statusFilter}
+                        onChange={(e) => setStatusFilter(e.target.value)}
+                      >
+                        <option value="">All Statuses</option>
+                        <option value="active">Active</option>
+                        <option value="pending">Pending</option>
+                        <option value="archived">Archived</option>
+                        <option value="rejected">Rejected</option>
+                      </select>
+
+                      <select
+                        aria-label="Filter type"
+                        className="glass-input text-[11px] py-1.5 focus-ring"
+                        value={typeFilter}
+                        onChange={(e) => setTypeFilter(e.target.value)}
+                      >
+                        <option value="">All Types</option>
+                        <option value="semantic">Semantic</option>
+                        <option value="procedural">Procedural</option>
+                        <option value="episodic">Episodic</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Skeletons or list items */}
+                  {govLoading ? (
+                    <div className="space-y-3">
+                      {[1, 2, 3].map((n) => (
+                        <div key={n} className="glass-panel p-4 h-24 shimmer rounded-lg border border-white/5"></div>
+                      ))}
+                    </div>
+                  ) : filteredMemories.length === 0 ? (
+                    <div className="text-center py-10 bg-white/2 rounded-lg border border-white/5 text-xs text-gray-500">
+                      No records matched the selected query or scopes.
                     </div>
                   ) : (
-                    memories.map((m) => (
-                      <div key={m.id} className="glass-panel p-4 flex items-start justify-between gap-4">
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-mono text-[10px] text-white/50 bg-white/5 px-1.5 py-0.5 rounded">
-                              {m.memory_type}
-                            </span>
-                            {m.identity_slot && (
-                              <span className="font-mono text-[10px] text-[#00f0ff] bg-[#00f0ff]/10 px-1.5 py-0.5 rounded">
-                                Slot: {m.identity_slot}
+                    <div className="space-y-2.5">
+                      {filteredMemories.map((m) => (
+                        <div key={m.id} className="glass-panel p-4 flex flex-col md:flex-row items-start justify-between gap-4">
+                          <div className="space-y-2 min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-mono text-[9px] font-bold text-gray-400 bg-white/5 px-2 py-0.5 rounded border border-white/5">
+                                {m.memory_type}
                               </span>
-                            )}
-                            <span className={`badge badge-${m.status}`}>{m.status}</span>
-                            <span className="text-[10px] text-[rgba(255,255,255,0.4)] font-mono">
-                              Imp: {m.importance} | Conf: {m.confidence.toFixed(2)}
-                            </span>
+                              {m.identity_slot && (
+                                <span className="font-mono text-[9px] font-semibold text-[#00f0ff] bg-[#00f0ff]/5 px-2 py-0.5 rounded border border-[#00f0ff]/10">
+                                  {m.identity_slot}
+                                </span>
+                              )}
+                              <span className={`badge badge-${m.status}`}>{m.status}</span>
+                              <span className="text-[9px] font-mono text-gray-500">
+                                Importance: {m.importance} | Confidence: {m.confidence.toFixed(2)}
+                              </span>
+                            </div>
+                            
+                            <p className="text-xs font-semibold text-white leading-relaxed">
+                              "{m.content}"
+                            </p>
+                            
+                            <div className="text-[9px] font-mono text-gray-600">
+                              Created: {new Date(m.created_at).toLocaleString()}
+                            </div>
                           </div>
-                          <p className="text-sm font-semibold text-white">"{m.content}"</p>
-                          <div className="text-[10px] text-[rgba(255,255,255,0.3)] font-mono">
-                            Created: {new Date(m.created_at).toLocaleString()}
-                          </div>
-                        </div>
 
-                        {/* Action buttons mapping */}
-                        <div className="flex items-center gap-2">
-                          {m.status === "pending" && (
-                            <>
+                          {/* Action menus */}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-2 md:mt-0 flex-shrink-0">
+                            {m.status === "pending" && (
+                              <>
+                                <button
+                                  onClick={() => handleTransitionStatus(m.id, "active")}
+                                  className="btn-secondary text-[10px] py-1 px-2.5 text-emerald-400 border-emerald-500/10 hover:bg-emerald-500/5 focus-ring"
+                                >
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => handleTransitionStatus(m.id, "rejected")}
+                                  className="btn-secondary text-[10px] py-1 px-2.5 text-red-400 border-red-500/10 hover:bg-red-500/5 focus-ring"
+                                >
+                                  Reject
+                                </button>
+                              </>
+                            )}
+                            {m.status === "active" && (
+                              <>
+                                <button
+                                  onClick={() => handleTransitionStatus(m.id, "archived")}
+                                  className="btn-secondary text-[10px] py-1 px-2.5 text-amber-400 border-amber-500/10 hover:bg-amber-500/5 focus-ring"
+                                >
+                                  Archive
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setEditMemory(m);
+                                    setEditContent(m.content);
+                                  }}
+                                  className="btn-secondary text-[10px] py-1 px-2.5 text-gray-300 focus-ring"
+                                >
+                                  Edit
+                                </button>
+                              </>
+                            )}
+                            {m.status === "archived" && (
                               <button
                                 onClick={() => handleTransitionStatus(m.id, "active")}
-                                className="btn-secondary text-[11px] py-1 px-2.5 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/10"
+                                className="btn-secondary text-[10px] py-1 px-2.5 text-emerald-400 border-emerald-500/10 hover:bg-emerald-500/5 focus-ring"
                               >
-                                Approve
+                                Restore
                               </button>
+                            )}
+                            {m.status !== "deleted" && (
                               <button
-                                onClick={() => handleTransitionStatus(m.id, "rejected")}
-                                className="btn-secondary text-[11px] py-1 px-2.5 text-rose-400 border-rose-500/20 hover:bg-rose-500/10"
+                                onClick={() => handleDeleteMemory(m.id)}
+                                className="btn-secondary text-[10px] py-1 px-2.5 text-red-500/80 border-red-500/10 hover:bg-red-500/5 focus-ring"
                               >
-                                Reject
+                                Delete
                               </button>
-                            </>
-                          )}
-                          {m.status === "active" && (
-                            <>
-                              <button
-                                onClick={() => handleTransitionStatus(m.id, "archived")}
-                                className="btn-secondary text-[11px] py-1 px-2.5 text-amber-400 border-amber-500/20 hover:bg-amber-500/10"
-                              >
-                                Archive
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setEditMemory(m);
-                                  setEditContent(m.content);
-                                }}
-                                className="btn-secondary text-[11px] py-1 px-2.5"
-                              >
-                                Edit
-                              </button>
-                            </>
-                          )}
-                          {m.status === "archived" && (
-                            <button
-                              onClick={() => handleTransitionStatus(m.id, "active")}
-                              className="btn-secondary text-[11px] py-1 px-2.5 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/10"
-                            >
-                              Restore
-                            </button>
-                          )}
-                          {m.status !== "deleted" && (
-                            <button
-                              onClick={() => handleDeleteMemory(m.id)}
-                              className="btn-secondary text-[11px] py-1 px-2.5 text-rose-500 border-rose-500/20 hover:bg-rose-500/10"
-                            >
-                              Delete
-                            </button>
-                          )}
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))
+                      ))}
+                    </div>
                   )}
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* View 2: Live Audit Log Stream */}
-            {activeTab === "audit" && (
-              <div className="space-y-4">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-[rgba(255,255,255,0.4)] px-1">
-                  Governance Audit Trail (Append-Only Log)
-                </h3>
-                
-                {auditLogs.length === 0 ? (
-                  <div className="text-center p-8 bg-[rgba(255,255,255,0.02)] border border-white/5 rounded-lg text-xs text-[rgba(255,255,255,0.4)]">
-                    No governance actions have been audited yet for this tenant.
-                  </div>
-                ) : (
-                  auditLogs.map((log) => (
-                    <div key={log.id} className="glass-panel p-4 flex flex-col gap-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono text-xs font-bold text-[#00f0ff] uppercase">
-                          {log.action.replace("memory_", "")}
-                        </span>
-                        <span className="font-mono text-[9px] text-[rgba(255,255,255,0.4)]">
-                          {new Date(log.created_at).toLocaleString()}
-                        </span>
+              {/* Tab 2: Audit Logs */}
+              {activeTab === "audit" && (
+                <div className="space-y-4">
+                  {govLoading ? (
+                    <div className="space-y-3">
+                      {[1, 2].map((n) => (
+                        <div key={n} className="glass-panel p-4 h-20 shimmer rounded-lg border border-white/5"></div>
+                      ))}
+                    </div>
+                  ) : auditLogs.length === 0 ? (
+                    <div className="text-center py-10 bg-white/2 rounded-lg border border-white/5 text-xs text-gray-500">
+                      No audited history log events detected.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {auditLogs.map((log) => (
+                        <div key={log.id} className="glass-panel p-3.5 flex flex-col gap-2">
+                          <div className="flex justify-between items-center">
+                            <span className="font-mono text-xs font-semibold text-[#00f0ff] uppercase tracking-wider">
+                              {log.action.replace("memory_", "")}
+                            </span>
+                            <span className="font-mono text-[9px] text-gray-500">
+                              {new Date(log.created_at).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-gray-300 leading-relaxed">
+                            Reason: {log.reason}
+                          </p>
+                          <div className="flex justify-between items-center border-t border-white/5 pt-2 mt-1 text-[8px] font-mono text-gray-500">
+                            <span>ID: {log.id}</span>
+                            {log.trace_id && <span>Trace: {log.trace_id}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tab 3: Metrics summary */}
+              {activeTab === "metrics" && (
+                <div className="space-y-5">
+                  {govLoading ? (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-3 gap-4 h-16">
+                        {[1, 2, 3].map((n) => (
+                          <div key={n} className="shimmer rounded-lg border border-white/5"></div>
+                        ))}
                       </div>
-                      <p className="text-xs text-white">Reason: {log.reason}</p>
-                      
-                      <div className="flex justify-between items-center border-t border-white/5 pt-2 mt-1 text-[9px] font-mono text-[rgba(255,255,255,0.4)]">
-                        <span>Event ID: {log.id}</span>
-                        {log.trace_id && <span>Trace ID: {log.trace_id}</span>}
+                      <div className="h-44 shimmer rounded-lg border border-white/5"></div>
+                    </div>
+                  ) : !metrics ? (
+                    <div className="text-center py-10 bg-white/2 rounded-lg border border-white/5 text-xs text-gray-500">
+                      Failed to fetch statistics.
+                    </div>
+                  ) : (
+                    <div className="space-y-5">
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="glass-panel p-4 text-center">
+                          <div className="text-xl font-bold text-white">{metrics.total_memories}</div>
+                          <div className="text-[9px] uppercase tracking-wider font-semibold text-gray-400 mt-1">Total Seeded</div>
+                        </div>
+                        <div className="glass-panel p-4 text-center">
+                          <div className="text-xl font-bold text-emerald-400">{metrics.by_status.active}</div>
+                          <div className="text-[9px] uppercase tracking-wider font-semibold text-gray-400 mt-1">Active Status</div>
+                        </div>
+                        <div className="glass-panel p-4 text-center">
+                          <div className="text-xl font-bold text-purple-400">{metrics.audit_events}</div>
+                          <div className="text-[9px] uppercase tracking-wider font-semibold text-gray-400 mt-1">Audit Entries</div>
+                        </div>
+                      </div>
+
+                      {/* Status breakdown */}
+                      <div className="glass-panel p-4 space-y-4">
+                        <h4 className="text-[10px] font-bold uppercase tracking-wider text-white">Status Breakdown</h4>
+                        <div className="space-y-3.5">
+                          {Object.entries(metrics.by_status).map(([key, val]) => {
+                            const percentage = metrics.total_memories > 0 ? (val / metrics.total_memories) * 100 : 0;
+                            return (
+                              <div key={key} className="space-y-1">
+                                <div className="flex justify-between text-[11px] font-mono">
+                                  <span className="capitalize">{key}</span>
+                                  <span>{val} ({percentage.toFixed(0)}%)</span>
+                                </div>
+                                <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full ${
+                                      key === "active"
+                                        ? "bg-emerald-400"
+                                        : key === "pending"
+                                        ? "bg-amber-400"
+                                        : key === "rejected"
+                                        ? "bg-red-500"
+                                        : "bg-gray-500"
+                                    }`}
+                                    style={{ width: `${percentage}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Action history counts */}
+                      <div className="glass-panel p-4 space-y-4">
+                        <h4 className="text-[10px] font-bold uppercase tracking-wider text-white">Action Metrics</h4>
+                        <div className="space-y-3.5">
+                          {Object.entries(metrics.by_action).map(([key, val]) => {
+                            const percentage = metrics.audit_events > 0 ? (val / metrics.audit_events) * 100 : 0;
+                            return (
+                              <div key={key} className="space-y-1">
+                                <div className="flex justify-between text-[11px] font-mono">
+                                  <span className="capitalize">{key.replace("memory_", "")}</span>
+                                  <span>{val} ({percentage.toFixed(0)}%)</span>
+                                </div>
+                                <div className="h-1 w-full bg-white/5 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full rounded-full bg-[#00f0ff]"
+                                    style={{ width: `${percentage}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
-                  ))
-                )}
-              </div>
-            )}
-
-            {/* View 3: Metrics Dashboard */}
-            {activeTab === "metrics" && metrics && (
-              <div className="space-y-6">
-                {/* Counters Grid */}
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="glass-panel p-4 text-center">
-                    <div className="text-2xl font-black text-white">{metrics.total_memories}</div>
-                    <div className="text-[10px] uppercase font-bold text-[rgba(255,255,255,0.4)] mt-1">Total Stored</div>
-                  </div>
-                  <div className="glass-panel p-4 text-center">
-                    <div className="text-2xl font-black text-emerald-400">{metrics.by_status.active}</div>
-                    <div className="text-[10px] uppercase font-bold text-[rgba(255,255,255,0.4)] mt-1">Active Status</div>
-                  </div>
-                  <div className="glass-panel p-4 text-center">
-                    <div className="text-2xl font-black text-[#8b5cf6]">{metrics.audit_events}</div>
-                    <div className="text-[10px] uppercase font-bold text-[rgba(255,255,255,0.4)] mt-1">Audit Entries</div>
-                  </div>
+                  )}
                 </div>
+              )}
+            </div>
+          </section>
+        </div>
+      </div>
 
-                {/* Status Breakdown list */}
-                <div className="glass-panel p-5 space-y-4">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-white">Status Breakdown</h4>
-                  <div className="space-y-3">
-                    {Object.entries(metrics.by_status).map(([key, val]) => {
-                      const percentage = metrics.total_memories > 0 ? (val / metrics.total_memories) * 100 : 0;
-                      return (
-                        <div key={key} className="space-y-1">
-                          <div className="flex justify-between text-xs font-mono">
-                            <span className="capitalize">{key}</span>
-                            <span>{val} ({percentage.toFixed(0)}%)</span>
-                          </div>
-                          <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${
-                                key === "active"
-                                  ? "bg-emerald-400"
-                                  : key === "pending"
-                                  ? "bg-amber-400"
-                                  : key === "rejected"
-                                  ? "bg-rose-500"
-                                  : "bg-gray-500"
-                              }`}
-                              style={{ width: `${percentage}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Action Counts list */}
-                <div className="glass-panel p-5 space-y-4">
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-white">Core Action Events</h4>
-                  <div className="space-y-3">
-                    {Object.entries(metrics.by_action).map(([key, val]) => {
-                      const percentage = metrics.audit_events > 0 ? (val / metrics.audit_events) * 100 : 0;
-                      return (
-                        <div key={key} className="space-y-1">
-                          <div className="flex justify-between text-xs font-mono">
-                            <span className="capitalize">{key.replace("memory_", "")}</span>
-                            <span>{val} ({percentage.toFixed(0)}%)</span>
-                          </div>
-                          <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                            <div
-                              className="h-full rounded-full bg-[#00f0ff]"
-                              style={{ width: `${percentage}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
-      </main>
-
-      {/* Edit content Modal Dialog */}
+      {/* 3. Edit Dialog Overlay Modal */}
       {editMemory && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="glass-panel w-full max-w-md p-6 space-y-4">
-            <h3 className="text-lg font-bold text-white">Edit Memory Record</h3>
+        <div
+          className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-title"
+        >
+          <div className="glass-panel w-full max-w-md p-5 space-y-4 bg-[#0d0f16]">
+            <h3 id="modal-title" className="text-sm font-semibold text-white uppercase tracking-wider">
+              Edit Memory Record
+            </h3>
             
             <form onSubmit={handleEditContentSubmit} className="space-y-4">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs text-[rgba(255,255,255,0.4)]" htmlFor="edit-text-area">Content Payload:</label>
+              <div className="flex flex-col gap-2">
+                <label className="text-xs text-gray-400" htmlFor="edit-text-area">
+                  Content Payload
+                </label>
                 <textarea
                   id="edit-text-area"
                   rows={4}
-                  className="glass-input resize-none w-full"
+                  className="glass-input resize-none w-full focus-ring"
                   value={editContent}
                   onChange={(e) => setEditContent(e.target.value)}
+                  autoFocus
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
+              <div className="flex items-center justify-end gap-2 pt-1">
                 <button
                   type="button"
                   onClick={() => {
                     setEditMemory(null);
                     setEditContent("");
                   }}
-                  className="btn-secondary"
+                  className="btn-secondary text-xs"
                 >
                   Cancel
                 </button>
-                <button type="submit" className="btn-primary">
+                <button type="submit" className="btn-primary text-xs focus-ring">
                   Save Changes
                 </button>
               </div>
