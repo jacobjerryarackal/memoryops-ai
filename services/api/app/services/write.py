@@ -13,6 +13,7 @@ from .audit import AuditService
 class WriteResult(BaseModel):
     policy_result: PolicyResult
     memory: Optional[MemoryRecord] = None
+    audit_event_id: Optional[str] = None
 
 
 class WriteServiceError(Exception):
@@ -52,7 +53,7 @@ class WriteService:
                 transaction_manager = TransactionManager(force_in_memory=True)
         self.transaction_manager = transaction_manager
 
-    async def process(self, candidate: CandidateMemory) -> WriteResult:
+    async def process(self, candidate: CandidateMemory, trace_id: Optional[str] = None) -> WriteResult:
         async with self.transaction_manager.transaction():
             # 1. Evaluate candidate using the Policy Broker
             policy_result = await self.broker.evaluate(candidate)
@@ -86,11 +87,16 @@ class WriteService:
                     memory_id=created.id,
                     action=AuditEventAction.MEMORY_CREATED,
                     reason=policy_result.reason,
-                    metadata={"decision": PolicyDecision.SAVE.value}
+                    metadata={"decision": PolicyDecision.SAVE.value},
+                    trace_id=trace_id
                 )
                 await self.audit_service.record(audit_event)
                 
-                return WriteResult(policy_result=policy_result, memory=created)
+                return WriteResult(
+                    policy_result=policy_result,
+                    memory=created,
+                    audit_event_id=str(audit_event.id)
+                )
                 
             elif policy_result.decision == PolicyDecision.PENDING_APPROVAL:
                 # Create a pending MemoryRecord
@@ -120,11 +126,16 @@ class WriteService:
                     memory_id=created.id,
                     action=AuditEventAction.MEMORY_PENDING_APPROVAL,
                     reason=policy_result.reason,
-                    metadata={"decision": PolicyDecision.PENDING_APPROVAL.value}
+                    metadata={"decision": PolicyDecision.PENDING_APPROVAL.value},
+                    trace_id=trace_id
                 )
                 await self.audit_service.record(audit_event)
                 
-                return WriteResult(policy_result=policy_result, memory=created)
+                return WriteResult(
+                    policy_result=policy_result,
+                    memory=created,
+                    audit_event_id=str(audit_event.id)
+                )
                 
             elif policy_result.decision == PolicyDecision.BLOCK:
                 # Emit safe audit log with no candidate content
@@ -134,11 +145,16 @@ class WriteService:
                     memory_id=None,
                     action=AuditEventAction.MEMORY_BLOCKED,
                     reason=policy_result.reason,
-                    metadata={"decision": PolicyDecision.BLOCK.value}
+                    metadata={"decision": PolicyDecision.BLOCK.value},
+                    trace_id=trace_id
                 )
                 await self.audit_service.record(audit_event)
                 
-                return WriteResult(policy_result=policy_result, memory=None)
+                return WriteResult(
+                    policy_result=policy_result,
+                    memory=None,
+                    audit_event_id=str(audit_event.id)
+                )
                 
             elif policy_result.decision == PolicyDecision.DROP_LOW_UTILITY:
                 # Emit audit log
@@ -148,11 +164,16 @@ class WriteService:
                     memory_id=None,
                     action=AuditEventAction.MEMORY_DROPPED,
                     reason=policy_result.reason,
-                    metadata={"decision": PolicyDecision.DROP_LOW_UTILITY.value}
+                    metadata={"decision": PolicyDecision.DROP_LOW_UTILITY.value},
+                    trace_id=trace_id
                 )
                 await self.audit_service.record(audit_event)
                 
-                return WriteResult(policy_result=policy_result, memory=None)
+                return WriteResult(
+                    policy_result=policy_result,
+                    memory=None,
+                    audit_event_id=str(audit_event.id)
+                )
                 
             elif policy_result.decision == PolicyDecision.UPDATE_EXISTING:
                 # Validate target_memory_id is present
@@ -207,11 +228,16 @@ class WriteService:
                     metadata={
                         "decision": PolicyDecision.UPDATE_EXISTING.value,
                         "changed_fields": changed_fields
-                    }
+                    },
+                    trace_id=trace_id
                 )
                 await self.audit_service.record(audit_event)
                 
-                return WriteResult(policy_result=policy_result, memory=updated_record)
+                return WriteResult(
+                    policy_result=policy_result,
+                    memory=updated_record,
+                    audit_event_id=str(audit_event.id)
+                )
                 
             elif policy_result.decision == PolicyDecision.MERGE_WITH_EXISTING:
                 raise UnsupportedDecisionError("MERGE_WITH_EXISTING is not supported in the Phase 1 MVP.")
