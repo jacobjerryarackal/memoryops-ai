@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useEffect, useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent, useCallback } from "react";
 import {
   api,
   AuditEvent,
@@ -51,7 +52,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // Load all dashboard statistics & memory items
-  const loadDashboardData = async (tId = tenantId, uId = userId) => {
+  const loadDashboardData = useCallback(async (tId = tenantId, uId = userId) => {
     setGovLoading(true);
     setActionError(null);
     try {
@@ -85,12 +86,12 @@ export default function Home() {
     } finally {
       setGovLoading(false);
     }
-  };
+  }, [tenantId, userId, statusFilter, typeFilter]);
 
   // Trigger load on state mounts or scopes change
   useEffect(() => {
     loadDashboardData();
-  }, [tenantId, userId, statusFilter, typeFilter]);
+  }, [loadDashboardData]);
 
   // Handle chat submission
   const handleSendChat = async (e?: FormEvent) => {
@@ -270,19 +271,19 @@ export default function Home() {
                 onClick={() => loadPromptShortcut("Remember that I prefer python for backend systems.")}
                 className="text-left text-xs bg-white/3 border border-white/5 hover:border-[#00f0ff]/20 p-2.5 rounded-md hover:bg-white/5 transition focus-ring text-gray-300"
               >
-                "Remember that I prefer python for backend systems."
+                &quot;Remember that I prefer python for backend systems.&quot;
               </button>
               <button
                 onClick={() => loadPromptShortcut("Remember that I prefer rust for system code.")}
                 className="text-left text-xs bg-white/3 border border-white/5 hover:border-[#00f0ff]/20 p-2.5 rounded-md hover:bg-white/5 transition focus-ring text-gray-300"
               >
-                "Remember that I prefer rust for system code."
+                &quot;Remember that I prefer rust for system code.&quot;
               </button>
               <button
                 onClick={() => loadPromptShortcut("My OpenAI API key is sk-proj-123456789012345678901234")}
                 className="text-left text-xs bg-red-500/5 border border-red-500/10 hover:border-red-500/30 p-2.5 rounded-md hover:bg-red-500/10 transition focus-ring text-red-300/80"
               >
-                "My API Key is sk-proj-..." (Safety Block Test)
+                &quot;My API Key is sk-proj-...&quot; (Safety Block Test)
               </button>
             </div>
           </div>
@@ -446,7 +447,7 @@ export default function Home() {
                                         Score: {(m.score * 100).toFixed(0)}%
                                       </span>
                                     </div>
-                                    <p className="text-gray-300">"{m.content}"</p>
+                                    <p className="text-gray-300">&quot;{m.content}&quot;</p>
                                     
                                     {/* Breakdown bars */}
                                     <div className="space-y-1 pt-1 border-t border-white/5 mt-1 text-[9px] font-mono">
@@ -486,7 +487,7 @@ export default function Home() {
                                 {item.candidateMemories.map((cm, cmIdx) => (
                                   <div key={cmIdx} className="bg-white/2 p-2 rounded border border-white/5 text-[11px] space-y-1">
                                     <div className="flex justify-between items-start gap-2">
-                                      <span className="text-gray-300 font-medium leading-relaxed">"{cm.content}"</span>
+                                      <span className="text-gray-300 font-medium leading-relaxed">&quot;{cm.content}&quot;</span>
                                       <span
                                         className={`badge flex-shrink-0 ${
                                           cm.decision === "SAVE"
@@ -700,7 +701,7 @@ export default function Home() {
                             </div>
                             
                             <p className="text-xs font-semibold text-white leading-relaxed">
-                              "{m.content}"
+                                &quot;{m.content}&quot;
                             </p>
                             
                             <div className="text-[9px] font-mono text-gray-600">
