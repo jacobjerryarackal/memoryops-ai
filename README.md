@@ -111,21 +111,21 @@ A production memory system must resolve structural memory anomalies:
 
 ```mermaid
 graph TD
-    App[AI Application] -->|HTTP /api/chat| API[MemoryOps API Gateway]
-    subgraph Governance Plane
-        Broker[Policy Broker]
-        Audit[Audit Service]
+    App["AI Application"] -->|"HTTP /api/chat"| API["MemoryOps API Gateway"]
+    subgraph gov_plane ["Governance Plane"]
+        Broker["Policy Broker"]
+        Audit["Audit Service"]
     end
-    subgraph Memory Engine
-        Extractor[Candidate Extractor]
-        WriteService[Write Service]
-        Retriever[Retriever & Ranker]
-        Composer[Context Composer]
-        Lifecycle[Lifecycle Runner]
+    subgraph mem_engine ["Memory Engine"]
+        Extractor["Candidate Extractor"]
+        WriteService["Write Service"]
+        Retriever["Retriever & Ranker"]
+        Composer["Context Composer"]
+        Lifecycle["Lifecycle Runner"]
     end
-    subgraph Storage Layer
-        Repo[Repository Layer Abstraction]
-        DB[(PostgreSQL + pgvector)]
+    subgraph store_layer ["Storage Layer"]
+        Repo["Repository Layer Abstraction"]
+        DB[("PostgreSQL + pgvector")]
     end
     API --> Extractor
     API --> Retriever
@@ -144,85 +144,85 @@ graph TD
 ```mermaid
 sequenceDiagram
     autonumber
-    participant App as Host AI Application
-    participant Gateway as API Gateway
-    participant Extractor as Extractor
-    participant Broker as Policy Broker
-    participant Registry as Identity Slot Registry
-    participant Write as Write Service
-    participant Repo as Memory Repository
-    participant Audit as Audit Service
+    participant App as "Host AI Application"
+    participant Gateway as "API Gateway"
+    participant Extractor as "Extractor"
+    participant Broker as "Policy Broker"
+    participant Registry as "Identity Slot Registry"
+    participant Write as "Write Service"
+    participant Repo as "Memory Repository"
+    participant Audit as "Audit Service"
 
-    App->>Gateway: POST /api/chat (Message)
-    Gateway->>Extractor: Propose Candidate Memories
-    Extractor-->>Gateway: CandidateMemory (content, slot, etc.)
-    Gateway->>Write: process(CandidateMemory)
-    opt Transaction Block Start
-        Write->>Broker: evaluate(CandidateMemory)
-        alt Secret Detected
-            Broker-->>Write: BLOCK (Reason)
-            Write->>Audit: record(MEMORY_BLOCKED)
-        else High Sensitivity
-            Broker-->>Write: PENDING_APPROVAL (Reason)
-            Write->>Repo: create(status=PENDING)
-            Write->>Audit: record(MEMORY_PENDING_APPROVAL)
-        else Unregistered / Multi Slot
-            Broker->>Registry: Check Cardinality
-            Registry-->>Broker: MULTI
-            Broker-->>Write: SAVE (Reason)
-            Write->>Repo: create(status=ACTIVE)
-            Write->>Audit: record(MEMORY_CREATED)
-        else Single Slot Occupied
-            Broker->>Registry: Check Cardinality
-            Registry-->>Broker: SINGLE
-            Broker->>Repo: get_active_by_slot()
-            Repo-->>Broker: [ExistingActiveRecord]
-            Broker-->>Write: UPDATE_EXISTING (Target ID)
-            Write->>Repo: update(status=ACTIVE, content=new, embedding=None)
-            Write->>Audit: record(MEMORY_UPDATED)
+    App->>Gateway: "POST /api/chat (Message)"
+    Gateway->>Extractor: "Propose Candidate Memories"
+    Extractor-->>Gateway: "CandidateMemory (content, slot, etc.)"
+    Gateway->>Write: "process(CandidateMemory)"
+    opt "Transaction Block Start"
+        Write->>Broker: "evaluate(CandidateMemory)"
+        alt "Secret Detected"
+            Broker-->>Write: "BLOCK (Reason)"
+            Write->>Audit: "record(MEMORY_BLOCKED)"
+        else "High Sensitivity"
+            Broker-->>Write: "PENDING_APPROVAL (Reason)"
+            Write->>Repo: "create(status=PENDING)"
+            Write->>Audit: "record(MEMORY_PENDING_APPROVAL)"
+        else "Unregistered / Multi Slot"
+            Broker->>Registry: "Check Cardinality"
+            Registry-->>Broker: "MULTI"
+            Broker-->>Write: "SAVE (Reason)"
+            Write->>Repo: "create(status=ACTIVE)"
+            Write->>Audit: "record(MEMORY_CREATED)"
+        else "Single Slot Occupied"
+            Broker->>Registry: "Check Cardinality"
+            Registry-->>Broker: "SINGLE"
+            Broker->>Repo: "get_active_by_slot()"
+            Repo-->>Broker: "ExistingActiveRecord"
+            Broker-->>Write: "UPDATE_EXISTING (Target ID)"
+            Write->>Repo: "update(status=ACTIVE, content=new, embedding=None)"
+            Write->>Audit: "record(MEMORY_UPDATED)"
         end
     end
-    Write-->>Gateway: WriteResult (MemoryRecord or None)
-    Gateway-->>App: ChatResponse (used_memories, candidate_memories)
+    Write-->>Gateway: "WriteResult (MemoryRecord or None)"
+    Gateway-->>App: "ChatResponse (used_memories, candidate_memories)"
 ```
 
 ### Retrieval Path Flow
 
 ```mermaid
 graph TD
-    Query[Incoming Message / Query] -->|Step 1| Coord[Retrieval Coordinator]
-    Coord -->|Step 2: Query Vector| Embed[Embedding Service]
-    Embed -->|Embedding / None| Coord
-    Coord -->|Step 3: Fetch Bounded Active Pool| Repo[Memory Repository]
-    Repo -->|Active Only: status = ACTIVE| Retriever[Retriever]
-    Retriever -->|Step 4: Compute Lexical Keyword Matches| Retriever
-    Retriever -->|Candidates List| Ranker[Deterministic Ranker]
-    Ranker -->|Step 5: Apply Weights & Normalization| Ranker
-    Note over Ranker: Score = 35% Semantic + 20% Lexical + 15% Importance + 10% Recency + 10% Confidence + 10% Reinforcement
-    Ranker -->|Sorted RankedCandidate List| Composer[Context Composer]
-    Composer -->|Step 6: Filter by Budget & Format| Composer
-    Composer -->|Step 7: Format Context Block| Coord
-    Coord -->|Step 8: Return Prompt Context & UsedMemory List| API[Gateway Response]
+    Query["Incoming Message / Query"] -->|"Step 1"| Coord["Retrieval Coordinator"]
+    Coord -->|"Step 2: Query Vector"| Embed["Embedding Service"]
+    Embed -->|"Embedding / None"| Coord
+    Coord -->|"Step 3: Fetch Bounded Active Pool"| Repo["Memory Repository"]
+    Repo -->|"Active Only: status = ACTIVE"| Retriever["Retriever"]
+    Retriever -->|"Step 4: Compute Lexical Keyword Matches"| Retriever
+    Retriever -->|"Candidates List"| Ranker["Deterministic Ranker"]
+    Ranker -->|"Step 5: Apply Weights & Normalization"| Ranker
+    Ranker -.-> ScoreFormula["Score = 35% Semantic + 20% Lexical + 15% Importance + 10% Recency + 10% Confidence + 10% Reinforcement"]
+    Ranker -->|"Sorted RankedCandidate List"| Composer["Context Composer"]
+    Composer -->|"Step 6: Filter by Budget & Format"| Composer
+    Composer -->|"Step 7: Format Context Block"| Coord
+    Coord -->|"Step 8: Return Prompt Context & UsedMemory List"| API["Gateway Response"]
 ```
 
 ### Transaction Flow
 
 ```mermaid
 graph TD
-    subgraph postgres [PostgreSQL Backend]
-        RootTx[Root Transaction: acquires conn from db_manager.pool]
-        RootTx -->|ContextVar db_tx_conn set| Exec1[Execute Queries]
-        Exec1 -->|Nested call| NestTx[Nested Transaction]
-        NestTx -->|SQL SAVEPOINT| Exec2[Execute Nested Queries]
-        Exec2 -->|Exception raised| RollbackSave[Rollback to SAVEPOINT]
-        Exec1 -->|Successful completion| CommitRoot[Commit Root Transaction]
+    subgraph postgres ["PostgreSQL Backend"]
+        RootTx["Root Transaction: acquires conn from db_manager.pool"]
+        RootTx -->|"ContextVar db_tx_conn set"| Exec1["Execute Queries"]
+        Exec1 -->|"Nested call"| NestTx["Nested Transaction"]
+        NestTx -->|"SQL SAVEPOINT"| Exec2["Execute Nested Queries"]
+        Exec2 -->|"Exception raised"| RollbackSave["Rollback to SAVEPOINT"]
+        Exec1 -->|"Successful completion"| CommitRoot["Commit Root Transaction"]
     end
 
-    subgraph memory [Simulated In-Memory Backend]
-        Snapshot[Capture snapshot of MemoryRepository._records and AuditService._events]
-        Snapshot -->|Push to Stack contextvar| ExecInMemory[Execute updates/creates]
-        ExecInMemory -->|Successful execution| PopStack[Discard snapshot from Stack]
-        ExecInMemory -->|Exception raised| RollbackInMemory[Pop and restore records & events dictionaries]
+    subgraph memory ["Simulated In-Memory Backend"]
+        Snapshot["Capture snapshot of MemoryRepository._records and AuditService._events"]
+        Snapshot -->|"Push to Stack contextvar"| ExecInMemory["Execute updates/creates"]
+        ExecInMemory -->|"Successful execution"| PopStack["Discard snapshot from Stack"]
+        ExecInMemory -->|"Exception raised"| RollbackInMemory["Pop and restore records & events dictionaries"]
     end
 ```
 
@@ -230,45 +230,45 @@ graph TD
 
 ```mermaid
 graph LR
-    subgraph Runner [Lifecycle Runner]
-        Scheduler[Worker Scheduler] -->|Triggers Periodically| RunnerExec[Runner Exec Engine]
-        RunnerExec -->|Exclusion Check: Legal Hold| WorkerPipeline
+    subgraph Runner ["Lifecycle Runner"]
+        Scheduler["Worker Scheduler"] -->|"Triggers Periodically"| RunnerExec["Runner Exec Engine"]
+        RunnerExec -->|"Exclusion Check: Legal Hold"| WorkerPipeline
     end
 
-    subgraph WorkerPipeline [Lifecycle Workers]
-        Retention[Retention Worker] -->|status=DELETED| Repo
-        Decay[Decay Worker] -->|importance - 1, status=ARCHIVED if 0| Repo
-        Reflection[Reflection Worker] -->|Jaccard Similarity proposal, status=PENDING| Repo
-        Compaction[Compaction Worker] -->|Wipes deleted content & vectors to [COMPACTED], None| Repo
+    subgraph WorkerPipeline ["Lifecycle Workers"]
+        Retention["Retention Worker"] -->|"status=DELETED"| Repo
+        Decay["Decay Worker"] -->|"importance - 1, status=ARCHIVED if 0"| Repo
+        Reflection["Reflection Worker"] -->|"Jaccard Similarity proposal, status=PENDING"| Repo
+        Compaction["Compaction Worker"] -->|"Wipes deleted content & vectors to [COMPACTED], None"| Repo
     end
 
-    Repo[(Repository Persistence)]
+    Repo[("Repository Persistence")]
 ```
 
 ### Repository Layer Abstraction
 
 ```mermaid
 graph TD
-    Service[Application Services: Write, Retrieval, Governance, Workers] -->|Interface Calls| BaseRepo[MemoryRepository Interface]
-    BaseRepo -->|SQL Queries, Pool, pgvector| PGRepo[PostgreSQLMemoryRepository]
-    BaseRepo -->|Python Dicts, Thread-safe snap| MemRepo[InMemoryMemoryRepository]
-    PGRepo -->|asyncpg driver| PGDB[(Postgres Database)]
+    Service["Application Services: Write, Retrieval, Governance, Workers"] -->|"Interface Calls"| BaseRepo["MemoryRepository Interface"]
+    BaseRepo -->|"SQL Queries, Pool, pgvector"| PGRepo["PostgreSQLMemoryRepository"]
+    BaseRepo -->|"Python Dicts, Thread-safe snap"| MemRepo["InMemoryMemoryRepository"]
+    PGRepo -->|"asyncpg driver"| PGDB[("Postgres Database")]
 ```
 
 ### Observability & Telemetry Flow
 
 ```mermaid
 graph TD
-    Gateway[Gateway API Entry] -->|Generates trace_id| Obs[Observability Service]
-    Obs -->|Telemetry Spans| Span[Requests Spans]
-    Obs -->|Operational Telemetry Logs| Logs[Structured stdout Logs]
-    Obs -->|Business/Gov metrics| Stats[Metrics Store]
-    Span -->|Propagates down calls| Extractor
+    Gateway["Gateway API Entry"] -->|"Generates trace_id"| Obs["Observability Service"]
+    Obs -->|"Telemetry Spans"| Span["Requests Spans"]
+    Obs -->|"Operational Telemetry Logs"| Logs["Structured stdout Logs"]
+    Obs -->|"Business/Gov metrics"| Stats["Metrics Store"]
+    Span -->|"Propagates down calls"| Extractor
     Span --> Broker
     Span --> Write
     Span --> Repo
-    Stats --> API[GET /api/metrics]
-    Repo -->|Separated Append-Only Logs| Audit[Audit Trail: memory_audit_logs]
+    Stats --> API["GET /api/metrics"]
+    Repo -->|"Separated Append-Only Logs"| Audit["Audit Trail: memory_audit_logs"]
 ```
 
 ### Database Schema & Layout
@@ -418,7 +418,9 @@ Incoming Query ──> Embed ──> Candidate Query ──> Python Lexical Matc
 Calculates keyword term match statistics in Python memory over retrieved records:
 - **Query & Content Normalization:** Unicode NFKC normalization, lowercase case folding, replacing non-alphanumeric symbols with spaces, and splitting by whitespace. No stopword filtering or stemming is performed.
 - **Lexical Score Formula:**
-  $$\text{keyword\_score} = \frac{\text{matched\_query\_terms}}{\max(\text{total\_unique\_query\_terms}, 1)}$$
+```math
+\text{keyword_score} = \frac{\text{matched_query_terms}}{\max(\text{total_unique_query_terms}, 1)}
+```
 
 ### 2. Multi-Signal Ranking
 Evaluates normalized scores `[0.0, 1.0]` across six dimensions:
@@ -428,8 +430,9 @@ Evaluates normalized scores `[0.0, 1.0]` across six dimensions:
 - `confidence_score = clamp(confidence, 0.0, 1.0)`
 - `recency_score = exp(-age_days / 30)` (Decay from `updated_at` to request time)
 - `reinforcement_score = 1 - exp(-reinforcement_count / 5)`
-
-$$Score = 0.35 \times \text{semantic} + 0.20 \times \text{lexical} + 0.15 \times \text{importance} + 0.10 \times \text{recency} + 0.10 \times \text{confidence} + 0.10 \times \text{reinforcement}$$
+```math
+\text{Score} = 0.35 \times \text{semantic} + 0.20 \times \text{lexical} + 0.15 \times \text{importance} + 0.10 \times \text{recency} + 0.10 \times \text{confidence} + 0.10 \times \text{reinforcement}
+```
 
 ### 3. Tie-Breaking
 If candidates share the identical final score, the ranker breaks ties using:
@@ -888,7 +891,7 @@ The project has completed its core phases:
 
 We welcome contributions to MemoryOps AI. Please follow these guidelines:
 
-1.  **Read the Rules:** Review [AGENTS.md](file:///d:/AI/memoryops-ai/AGENTS.md) for style and implementation requirements.
+1.  **Read the Rules:** Review [AGENTS.md](AGENTS.md) for style and implementation requirements.
 2.  **Branch Naming:** Use feature branches (`feature/your-feature-name` or `bugfix/your-bugfix-name`).
 3.  **Run Migrations:** If introducing schema changes, add an incremental SQL script under `infra/db/migrations/` and update the migration runner.
 4.  **Tests Required:** Every pull request must include unit or integration tests verifying the change.
@@ -924,4 +927,4 @@ Special thanks to the open-source maintainers of:
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](file:///d:/AI/memoryops-ai/LICENSE) for details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
