@@ -481,9 +481,10 @@ def test_merge_with_existing_throws():
             sensitivity=Sensitivity.LOW
         )
 
-        # Verify merge throws UnsupportedDecisionError in Phase 1
-        with pytest.raises(UnsupportedDecisionError):
+        # Verify merge throws TargetUnavailableError (since decision is implemented but target does not exist)
+        with pytest.raises(TargetUnavailableError):
             await service.process(candidate)
+
 
     asyncio.run(run())
 

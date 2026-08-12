@@ -133,15 +133,22 @@ async def test_worker_and_scheduler_timing():
 
     # Test scheduler trigger metric
     scheduler = WorkerScheduler(runner)
-    scheduler.schedule_job("retention_worker", 0.1)
+    scheduler.schedule_job("retention_worker", 0.05)
     await scheduler.start("tenant_obs", "user_obs")
-    await asyncio.sleep(0.15)
+    
+    # Poll for events with timeout to prevent timing flakiness
+    sched_metric = None
+    for _ in range(30):
+        await asyncio.sleep(0.05)
+        events_after_scheduler = obs.recorded_events
+        sched_metric = next((e for e in events_after_scheduler if e.get("event_type") == "metric" and e.get("metric_name") == "scheduler_trigger_duration"), None)
+        if sched_metric is not None:
+            break
+            
     await scheduler.stop()
-
-    events_after_scheduler = obs.recorded_events
-    sched_metric = next((e for e in events_after_scheduler if e.get("event_type") == "metric" and e.get("metric_name") == "scheduler_trigger_duration"), None)
     assert sched_metric is not None
     assert sched_metric["tags"]["job_name"] == "retention_worker"
+
 
 
 @pytest.mark.anyio

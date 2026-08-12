@@ -103,6 +103,17 @@ def test_api_get_memory_by_id_and_provenance_and_audit():
     assert resp_audit.status_code == 200
     assert isinstance(resp_audit.json(), list)
 
+    # 5. Successful Evidence GET
+    resp_ev = client.get(f"/api/memories/{mid}/evidence?tenant_id={tenant}&user_id={user}")
+    assert resp_ev.status_code == 200
+    ev_data = resp_ev.json()
+    assert ev_data["memory_id"] == str(mid)
+    assert ev_data["tenant_id"] == tenant
+    assert ev_data["user_id"] == user
+    assert ev_data["initial_policy_reason"] == "test_api"
+    assert isinstance(ev_data["audit_trail"], list)
+
+
 
 def test_api_patch_memory_transitions_and_safety():
     tenant = "tenant_patch"
