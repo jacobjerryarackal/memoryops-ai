@@ -27,6 +27,8 @@ class PolicyDecision(str, Enum):
     DROP_LOW_UTILITY = "DROP_LOW_UTILITY"
     UPDATE_EXISTING = "UPDATE_EXISTING"
     MERGE_WITH_EXISTING = "MERGE_WITH_EXISTING"
+    REDACT = "REDACT"
+    DEFER = "DEFER"
 
 
 class AuditEventAction(str, Enum):
@@ -40,6 +42,9 @@ class AuditEventAction(str, Enum):
     MEMORY_REJECTED = "memory_rejected"
     MEMORY_ARCHIVED = "memory_archived"
     MEMORY_DELETED = "memory_deleted"
+    MEMORY_REDACTED = "memory_redacted"
+    MEMORY_DEFERRED = "memory_deferred"
+
 
 
 class RetrievalMode(str, Enum):

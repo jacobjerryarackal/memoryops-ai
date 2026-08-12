@@ -80,8 +80,10 @@ class MemoryRecord(BaseModel):
         None,
         description="Persisted mutation coordinate assigned at admission (immutable after admission, although repository-level enforcement is deferred to a subsequent step); must follow the canonical grammar or be None"
     )
+    version: int = Field(1, ge=1, description="Version count for optimistic concurrency control")
 
     @field_validator("identity_slot")
+
     @classmethod
     def validate_slot_format(cls, v: Optional[str]) -> Optional[str]:
         return validate_identity_slot_val(v)
