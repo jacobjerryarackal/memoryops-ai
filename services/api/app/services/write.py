@@ -240,7 +240,148 @@ class WriteService:
                 )
                 
             elif policy_result.decision == PolicyDecision.MERGE_WITH_EXISTING:
-                raise UnsupportedDecisionError("MERGE_WITH_EXISTING is not supported in the Phase 1 MVP.")
+                if policy_result.target_memory_id is None:
+                    raise InvalidPolicyResultError("target_memory_id is required for MERGE_WITH_EXISTING decisions.")
+                    
+                target = await self.repository.get_by_id(
+                    policy_result.target_memory_id,
+                    candidate.tenant_id,
+                    candidate.user_id
+                )
+                if target is None:
+                    raise TargetUnavailableError("Target memory record does not exist or is out of scope.")
+                    
+                if target.status != MemoryStatus.ACTIVE:
+                    raise TargetUnavailableError("Target memory record is not ACTIVE.")
+                    
+                if (target.tenant_id != candidate.tenant_id or
+                    target.user_id != candidate.user_id or
+                    target.memory_type != candidate.memory_type or
+                    target.identity_slot != candidate.identity_slot):
+                    raise InvalidPolicyResultError("Coordinate mismatch between candidate and target memory.")
+                    
+                updated = target.model_copy(deep=True)
+                # Merger Strategy: Append new content to old content using a newline
+                updated.content = f"{target.content}\n{candidate.content}"
+                updated.confidence = max(target.confidence, candidate.confidence)
+                updated.importance = max(target.importance, candidate.importance)
+                updated.sensitivity = candidate.sensitivity
+                updated.source_kind = candidate.source_kind
+                updated.source_conversation_id = candidate.source_conversation_id
+                updated.source_excerpt = candidate.source_excerpt
+                updated.embedding = None  # Clear vector to force re-embedding
                 
+                updated_record = await self.repository.update(updated)
+                
+                audit_event = AuditEvent(
+                    tenant_id=candidate.tenant_id,
+                    user_id=candidate.user_id,
+                    memory_id=updated_record.id,
+                    action=AuditEventAction.MEMORY_MERGED,
+                    reason=policy_result.reason,
+                    metadata={
+                        "decision": PolicyDecision.MERGE_WITH_EXISTING.value,
+                        "merged_from_id": str(target.id)
+                    },
+                    trace_id=trace_id
+                )
+                await self.audit_service.record(audit_event)
+                
+                return WriteResult(
+                    policy_result=policy_result,
+                    memory=updated_record,
+                    audit_event_id=str(audit_event.id)
+                )
+
+            elif policy_result.decision == PolicyDecision.REDACT:
+                # Cleanse PII from content using PIIRedactionPolicy
+                from .retrieval import PIIRedactionPolicy
+                
+                class DummyCandidate:
+                    class DummyMemory:
+                        def __init__(self, content):
+                            self.content = content
+                    def __init__(self, content):
+                        self.memory = self.DummyMemory(content)
+
+                policy = PIIRedactionPolicy()
+                _, redacted_content = policy.evaluate(DummyCandidate(candidate.content))
+                final_content = redacted_content if redacted_content else candidate.content
+
+                record = MemoryRecord(
+                    tenant_id=candidate.tenant_id,
+                    user_id=candidate.user_id,
+                    content=final_content,
+                    memory_type=candidate.memory_type,
+                    status=MemoryStatus.ACTIVE,
+                    sensitivity=candidate.sensitivity,
+                    importance=candidate.importance,
+                    confidence=candidate.confidence,
+                    source_kind=candidate.source_kind,
+                    source_conversation_id=candidate.source_conversation_id,
+                    source_excerpt=candidate.source_excerpt,
+                    initial_policy_decision=PolicyDecision.REDACT,
+                    initial_policy_reason=policy_result.reason,
+                    identity_slot=candidate.identity_slot,
+                    embedding=None
+                )
+                created = await self.repository.create(record)
+
+                # Emit audit log
+                audit_event = AuditEvent(
+                    tenant_id=candidate.tenant_id,
+                    user_id=candidate.user_id,
+                    memory_id=created.id,
+                    action=AuditEventAction.MEMORY_REDACTED,
+                    reason=policy_result.reason,
+                    metadata={"decision": PolicyDecision.REDACT.value},
+                    trace_id=trace_id
+                )
+                await self.audit_service.record(audit_event)
+
+                return WriteResult(
+                    policy_result=policy_result,
+                    memory=created,
+                    audit_event_id=str(audit_event.id)
+                )
+
+            elif policy_result.decision == PolicyDecision.DEFER:
+                record = MemoryRecord(
+                    tenant_id=candidate.tenant_id,
+                    user_id=candidate.user_id,
+                    content=candidate.content,
+                    memory_type=candidate.memory_type,
+                    status=MemoryStatus.PENDING,
+                    sensitivity=candidate.sensitivity,
+                    importance=candidate.importance,
+                    confidence=candidate.confidence,
+                    source_kind=candidate.source_kind,
+                    source_conversation_id=candidate.source_conversation_id,
+                    source_excerpt=candidate.source_excerpt,
+                    initial_policy_decision=PolicyDecision.DEFER,
+                    initial_policy_reason=policy_result.reason,
+                    identity_slot=candidate.identity_slot,
+                    embedding=None
+                )
+                created = await self.repository.create(record)
+
+                audit_event = AuditEvent(
+                    tenant_id=candidate.tenant_id,
+                    user_id=candidate.user_id,
+                    memory_id=created.id,
+                    action=AuditEventAction.MEMORY_DEFERRED,
+                    reason=policy_result.reason,
+                    metadata={"decision": PolicyDecision.DEFER.value},
+                    trace_id=trace_id
+                )
+                await self.audit_service.record(audit_event)
+
+                return WriteResult(
+                    policy_result=policy_result,
+                    memory=created,
+                    audit_event_id=str(audit_event.id)
+                )
+
             else:
                 raise UnsupportedDecisionError(f"Unhandled policy decision: {policy_result.decision}")
+

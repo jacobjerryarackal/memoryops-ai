@@ -138,7 +138,37 @@ class GovernanceService:
             "audit_event_ids": [str(e.id) for e in events],
         }
 
+    async def get_memory_evidence(
+        self, memory_id: UUID, tenant_id: str, user_id: str
+    ) -> Dict[str, Any]:
+        """
+        Retrieves complete structured memory evidence, including initial policy parameters,
+        metadata origin, and the full audit trail.
+        """
+        record = await self.get_memory_by_id(memory_id, tenant_id, user_id)
+        events = await self.audit_service.list_events(
+            tenant_id=tenant_id, user_id=user_id, memory_id=memory_id
+        )
+        # Stable sort: created_at DESC, then id ASC
+        events.sort(key=lambda e: e.id)
+        events.sort(key=lambda e: e.created_at, reverse=True)
+
+        return {
+            "memory_id": record.id,
+            "tenant_id": record.tenant_id,
+            "user_id": record.user_id,
+            "initial_policy_decision": record.initial_policy_decision,
+            "initial_policy_reason": record.initial_policy_reason,
+            "source_kind": record.source_kind,
+            "source_conversation_id": record.source_conversation_id,
+            "source_excerpt": record.source_excerpt,
+            "created_at": record.created_at,
+            "updated_at": record.updated_at,
+            "audit_trail": events,
+        }
+
     async def get_memory_audit(
+
         self, memory_id: UUID, tenant_id: str, user_id: str, limit: Optional[int] = None
     ) -> List[AuditEvent]:
         """

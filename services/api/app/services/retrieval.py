@@ -259,6 +259,146 @@ class ContextComposer:
         return context, used_memories
 
 
+import re
+from enum import Enum
+
+
+class AdmissionDecision(str, Enum):
+    ALLOW = "allow"
+    DENY = "deny"
+    REDACT = "redact"
+    TRUNCATE = "truncate"
+    DOWNRANK = "downrank"
+
+
+class AdmissionPolicy:
+    """
+    Base interface for evaluating candidates in the admission layer.
+    """
+    def evaluate(self, candidate: RankedCandidate) -> Tuple[AdmissionDecision, Optional[str]]:
+        raise NotImplementedError
+
+
+class PIIRedactionPolicy(AdmissionPolicy):
+    """
+    Redacts sensitive PII patterns from memory content.
+    """
+    def __init__(self) -> None:
+        self.patterns = [
+            (re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+", re.IGNORECASE), "[EMAIL_REDACTED]"),
+            (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[SSN_REDACTED]"),
+            (re.compile(r"\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b"), "[PHONE_REDACTED]"),
+            (re.compile(r"\b(?:api[ _-]?key|secret|token|password)[=:]\s*['\"]?[a-zA-Z0-9/+=_-]{10,}['\"]?", re.IGNORECASE), "[SECRET_REDACTED]")
+
+        ]
+
+    def evaluate(self, candidate: RankedCandidate) -> Tuple[AdmissionDecision, Optional[str]]:
+        content = candidate.memory.content
+        modified = False
+        for pattern, replacement in self.patterns:
+            if pattern.search(content):
+                content = pattern.sub(replacement, content)
+                modified = True
+        if modified:
+            return AdmissionDecision.REDACT, content
+        return AdmissionDecision.ALLOW, None
+
+
+class LengthTruncationPolicy(AdmissionPolicy):
+    """
+    Truncates memory content if it exceeds max_length characters.
+    """
+    def __init__(self, max_length: int = 100) -> None:
+        self.max_length = max_length
+
+    def evaluate(self, candidate: RankedCandidate) -> Tuple[AdmissionDecision, Optional[str]]:
+        if len(candidate.memory.content) > self.max_length:
+            truncated = candidate.memory.content[:self.max_length] + "..."
+            return AdmissionDecision.TRUNCATE, truncated
+        return AdmissionDecision.ALLOW, None
+
+
+class ImportanceDownrankPolicy(AdmissionPolicy):
+    """
+    Reduces candidate score if memory importance is low.
+    """
+    def __init__(self, threshold: int = 3, penalty: float = 0.5) -> None:
+        self.threshold = threshold
+        self.penalty = penalty
+
+    def evaluate(self, candidate: RankedCandidate) -> Tuple[AdmissionDecision, Optional[str]]:
+        if candidate.memory.importance <= self.threshold:
+            return AdmissionDecision.DOWNRANK, str(self.penalty)
+        return AdmissionDecision.ALLOW, None
+
+
+class KeywordDenyPolicy(AdmissionPolicy):
+    """
+    Blocks memory completely if it contains forbidden keywords.
+    """
+    def __init__(self, forbidden_keywords: List[str]) -> None:
+        self.forbidden_keywords = [w.lower() for w in forbidden_keywords]
+
+    def evaluate(self, candidate: RankedCandidate) -> Tuple[AdmissionDecision, Optional[str]]:
+        content_lower = candidate.memory.content.lower()
+        for word in self.forbidden_keywords:
+            if word in content_lower:
+                return AdmissionDecision.DENY, f"Forbidden keyword '{word}' detected."
+        return AdmissionDecision.ALLOW, None
+
+
+class ContextAdmissionLayer:
+    """
+    Admission layer that applies filters and policies to RankedCandidates.
+    """
+    def __init__(self, policies: List[AdmissionPolicy]) -> None:
+        self.policies = policies
+
+    def admit(self, candidates: List[RankedCandidate]) -> List[RankedCandidate]:
+        admitted = []
+        any_downranked = False
+
+        for cand in candidates:
+            # Clone candidate's memory record so that temporary redaction / truncation
+            # does not corrupt the cached memory record in the pool.
+            cloned_memory = cand.memory.model_copy(deep=True)
+            current_cand = RankedCandidate(
+                memory=cloned_memory,
+                final_score=cand.final_score,
+                score_breakdown=cand.score_breakdown,
+                rank=cand.rank
+            )
+            
+            denied = False
+            for policy in self.policies:
+                decision, val = policy.evaluate(current_cand)
+                if decision == AdmissionDecision.DENY:
+                    denied = True
+                    break
+                elif decision == AdmissionDecision.REDACT and val:
+                    current_cand.memory.content = val
+                elif decision == AdmissionDecision.TRUNCATE and val:
+                    current_cand.memory.content = val
+                elif decision == AdmissionDecision.DOWNRANK and val:
+                    current_cand.final_score = max(0.0, current_cand.final_score - float(val))
+                    any_downranked = True
+
+
+            if not denied:
+                admitted.append(current_cand)
+
+        if any_downranked:
+            # Re-sort matching stable Timsort details from Ranker
+            admitted.sort(key=lambda x: str(x.memory.id))
+            admitted.sort(key=lambda x: x.memory.created_at, reverse=True)
+            admitted.sort(key=lambda x: x.final_score, reverse=True)
+            
+            for i, cand in enumerate(admitted):
+                cand.rank = i + 1
+
+        return admitted
+
+
 class RetrievalCoordinator:
     def __init__(
         self,
@@ -267,12 +407,15 @@ class RetrievalCoordinator:
         ranker: Ranker,
         context_composer: ContextComposer,
         telemetry: Optional[RetrievalTelemetry] = None,
+        admission_layer: Optional[ContextAdmissionLayer] = None,
     ) -> None:
         self._embedding_service = embedding_service
         self._retriever = retriever
         self._ranker = ranker
         self._context_composer = context_composer
         self._telemetry = telemetry if telemetry is not None else NoOpRetrievalTelemetry()
+        self._admission_layer = admission_layer
+
 
     async def retrieve_context(
         self,
@@ -331,10 +474,15 @@ class RetrievalCoordinator:
         ranked_candidates = self._ranker.rank(candidates, now=now)
         rank_latency = (time.perf_counter() - start_rank) * 1000.0
 
+        # Execute Context Admission Layer if configured
+        if self._admission_layer is not None:
+            ranked_candidates = self._admission_layer.admit(ranked_candidates)
+
         # Measure compose latency
         start_compose = time.perf_counter()
         context, used_memories = self._context_composer.compose_context(ranked_candidates)
         compose_latency = (time.perf_counter() - start_compose) * 1000.0
+
 
         # Build score breakdown dictionary for selected candidates
         score_breakdown = {
