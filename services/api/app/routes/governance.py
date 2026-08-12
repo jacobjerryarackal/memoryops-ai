@@ -2,8 +2,10 @@ import uuid
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, status, Header
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
+from app.services.idempotency import idempotency_service
 from pydantic import BaseModel, Field
 
 from ..domain.enums import MemoryStatus, MemoryType, Sensitivity
@@ -108,7 +110,44 @@ async def get_provenance(
         )
 
 
+from datetime import datetime
+
+class EvidenceResponse(BaseModel):
+    memory_id: UUID
+    tenant_id: str
+    user_id: str
+    initial_policy_decision: str
+    initial_policy_reason: str
+    source_kind: str
+    source_conversation_id: Optional[str] = None
+    source_excerpt: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+    audit_trail: List[AuditEvent]
+
+
+@router.get("/memories/{memory_id}/evidence", response_model=EvidenceResponse)
+async def get_evidence(
+    memory_id: UUID,
+    tenant_id: str = Query(..., min_length=1),
+    user_id: str = Query(..., min_length=1),
+    service: GovernanceService = Depends(get_governance_service),
+):
+    trace_id = f"trace-{uuid.uuid4()}"
+    try:
+        evidence = await service.get_memory_evidence(
+            memory_id=memory_id, tenant_id=tenant_id, user_id=user_id
+        )
+        return evidence
+    except GovernanceTargetUnavailableError as e:
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content=make_error_response("MEMORY_NOT_FOUND", str(e), trace_id),
+        )
+
+
 @router.get("/memories/{memory_id}/audit", response_model=List[AuditEvent])
+
 async def get_audit(
     memory_id: UUID,
     tenant_id: str = Query(..., min_length=1),
@@ -134,7 +173,16 @@ async def patch_memory(
     memory_id: UUID,
     request: PatchMemoryRequest,
     service: GovernanceService = Depends(get_governance_service),
+    x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
+    if x_idempotency_key:
+        cached = await idempotency_service.get_cached_response(
+            x_idempotency_key, request.tenant_id, request.user_id
+        )
+        if cached:
+            status_code, body = cached
+            return JSONResponse(status_code=status_code, content=body)
+
     trace_id = f"trace-{uuid.uuid4()}"
     try:
         updated = await service.patch_memory(
@@ -151,6 +199,12 @@ async def patch_memory(
             source_excerpt=request.source_excerpt,
             trace_id=trace_id,
         )
+        
+        encoded = jsonable_encoder(updated)
+        if x_idempotency_key:
+            await idempotency_service.cache_response(
+                x_idempotency_key, request.tenant_id, request.user_id, 200, encoded
+            )
         return updated
     except GovernanceTargetUnavailableError as e:
         return JSONResponse(
@@ -184,7 +238,16 @@ async def delete_memory(
     memory_id: UUID,
     request: DeleteMemoryRequest,
     service: GovernanceService = Depends(get_governance_service),
+    x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
+    if x_idempotency_key:
+        cached = await idempotency_service.get_cached_response(
+            x_idempotency_key, request.tenant_id, request.user_id
+        )
+        if cached:
+            status_code, body = cached
+            return JSONResponse(status_code=status_code, content=body)
+
     trace_id = f"trace-{uuid.uuid4()}"
     try:
         deleted = await service.delete_memory(
@@ -195,11 +258,18 @@ async def delete_memory(
         )
         # Format the deleted_at date in ISO format
         deleted_at_str = deleted.deleted_at.isoformat() if deleted.deleted_at else ""
-        return DeleteMemoryResponse(
+        resp_obj = DeleteMemoryResponse(
             memory_id=deleted.id,
             status=deleted.status,
             deleted_at=deleted_at_str,
         )
+        
+        encoded = jsonable_encoder(resp_obj)
+        if x_idempotency_key:
+            await idempotency_service.cache_response(
+                x_idempotency_key, request.tenant_id, request.user_id, 200, encoded
+            )
+        return resp_obj
     except GovernanceTargetUnavailableError as e:
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,

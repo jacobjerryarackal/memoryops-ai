@@ -12,6 +12,11 @@ from ..services.retrieval import RetrievalCoordinator
 from ..services.write import WriteService
 from ..policy.broker import PolicyBroker
 
+from fastapi import APIRouter, Depends, Header
+from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
+from app.services.idempotency import idempotency_service
+
 router = APIRouter()
 logger = logging.getLogger("app.routes.chat")
 
@@ -135,7 +140,16 @@ def extract_candidate_from_message(message: str, tenant_id: str, user_id: str) -
 async def chat(
     request: ChatRequest,
     coordinator: RetrievalCoordinator = Depends(get_retrieval_coordinator),
+    x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
+    if x_idempotency_key:
+        cached = await idempotency_service.get_cached_response(
+            x_idempotency_key, request.tenant_id, request.user_id
+        )
+        if cached:
+            status_code, body = cached
+            return JSONResponse(status_code=status_code, content=body)
+
     # Dynamic per-request UUID string for trace_id boundary placeholder
     trace_id = f"trace-{uuid.uuid4()}"
     logger.info(f"[{trace_id}] Entered chat route. Message: '{request.message}', Tenant: '{request.tenant_id}', User: '{request.user_id}'")
@@ -211,7 +225,7 @@ async def chat(
     else:
         logger.info(f"[{trace_id}] Bypassing write path: temporary_chat is True")
 
-    return ChatResponse(
+    resp_obj = ChatResponse(
         assistant_message="Understood.",
         used_memories=used_memories,
         candidate_memories=candidate_memories,
@@ -220,3 +234,12 @@ async def chat(
         retrieval_mode=retrieval_mode,
         trace_id=trace_id,
     )
+
+    encoded = jsonable_encoder(resp_obj)
+    if x_idempotency_key:
+        await idempotency_service.cache_response(
+            x_idempotency_key, request.tenant_id, request.user_id, 200, encoded
+        )
+
+    return resp_obj
+
