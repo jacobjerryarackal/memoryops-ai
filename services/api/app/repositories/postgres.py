@@ -72,9 +72,12 @@ async def run_in_temp_conn(coro_func) -> Any:
             await register_vector(conn)
         except Exception:
             pass
-        return await coro_func(conn)
+        async with conn.transaction():
+            await conn.execute("SET LOCAL app.bypass_rls = 'true';")
+            return await coro_func(conn)
     finally:
         await conn.close()
+
 
 
 from ..services.observability import obs, trace_method, trace_class
@@ -142,6 +145,56 @@ async def get_connection() -> AsyncIterator[asyncpg.Connection]:
             yield ObsConnectionProxy(conn_acquired)
 
 
+from contextvars import ContextVar
+from contextlib import asynccontextmanager
+
+db_bypass_rls: ContextVar[bool] = ContextVar("db_bypass_rls", default=False)
+
+
+@asynccontextmanager
+async def rls_bypass() -> AsyncIterator[None]:
+    token = db_bypass_rls.set(True)
+    try:
+        yield
+    finally:
+        db_bypass_rls.reset(token)
+
+
+@asynccontextmanager
+async def scoped_connection(tenant_id: str, user_id: Optional[str]) -> AsyncIterator[asyncpg.Connection]:
+    async with get_connection() as conn:
+        if db_bypass_rls.get():
+            in_tx = db_tx_conn.get() is not None
+            if in_tx:
+                await conn.execute("SELECT set_config('app.bypass_rls', 'true', true)")
+                yield conn
+            else:
+                async with conn.transaction():
+                    await conn.execute("SELECT set_config('app.bypass_rls', 'true', true)")
+                    yield conn
+            return
+
+
+        in_tx = db_tx_conn.get() is not None
+        if in_tx:
+            await conn.execute("SELECT set_config('app.current_tenant_id', $1, true)", tenant_id)
+            if user_id:
+                await conn.execute("SELECT set_config('app.current_user_id', $1, true)", user_id)
+            else:
+                await conn.execute("SELECT set_config('app.current_user_id', '', true)")
+            yield conn
+        else:
+            async with conn.transaction():
+                await conn.execute("SELECT set_config('app.current_tenant_id', $1, true)", tenant_id)
+                if user_id:
+                    await conn.execute("SELECT set_config('app.current_user_id', $1, true)", user_id)
+                else:
+                    await conn.execute("SELECT set_config('app.current_user_id', '', true)")
+                yield conn
+
+
+
+
 class PostgresDictProxy(dict):
     """Dict proxy to intercept direct dictionary updates in test fixtures and sync them to PostgreSQL."""
     def __init__(self, table_name: str):
@@ -158,6 +211,8 @@ class PostgresDictProxy(dict):
         super().__setitem__(key, value)
         async def do_set(conn):
             if self.table_name == "memories":
+
+
                 exists = await conn.fetchval("SELECT EXISTS(SELECT 1 FROM memories WHERE id = $1)", key)
                 if exists:
                     await conn.execute(
@@ -269,7 +324,9 @@ def row_to_memory_record(row: asyncpg.Record) -> MemoryRecord:
         identity_slot=row["identity_slot"],
         legal_hold=row["legal_hold"],
         expires_at=row["expires_at"],
+        version=row["version"],
     )
+
 
 
 def row_to_audit_event(row: asyncpg.Record) -> AuditEvent:
@@ -299,7 +356,7 @@ class PostgreSQLMemoryRepository(MemoryRepository):
 
     async def create(self, record: MemoryRecord) -> MemoryRecord:
         try:
-            async with get_connection() as conn:
+            async with scoped_connection(record.tenant_id, record.user_id) as conn:
                 await conn.execute(
                     """
                     INSERT INTO memories (
@@ -307,9 +364,9 @@ class PostgreSQLMemoryRepository(MemoryRepository):
                         importance, confidence, reinforcement_count, embedding, source_kind,
                         source_conversation_id, source_excerpt, initial_policy_decision,
                         initial_policy_reason, created_at, updated_at, archived_at, deleted_at,
-                        identity_slot, legal_hold, expires_at
+                        identity_slot, legal_hold, expires_at, version
                     ) VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
                     )
                     """,
                     record.id,
@@ -335,16 +392,18 @@ class PostgreSQLMemoryRepository(MemoryRepository):
                     record.identity_slot,
                     record.legal_hold,
                     record.expires_at,
+                    record.version,
                 )
         except asyncpg.exceptions.UniqueViolationError:
             raise ValueError(f"Duplicate key: Memory record with ID {record.id} already exists.")
+
 
         return record.model_copy(deep=True)
 
     async def get_by_id(
         self, memory_id: UUID, tenant_id: str, user_id: str
     ) -> Optional[MemoryRecord]:
-        async with get_connection() as conn:
+        async with scoped_connection(tenant_id, user_id) as conn:
             row = await conn.fetchrow(
                 "SELECT * FROM memories WHERE id = $1 AND tenant_id = $2 AND user_id = $3",
                 memory_id,
@@ -356,45 +415,53 @@ class PostgreSQLMemoryRepository(MemoryRepository):
             return row_to_memory_record(row)
 
     async def update(self, record: MemoryRecord) -> MemoryRecord:
-        async with get_connection() as conn:
-            # Check if record exists at all
-            persisted_row = await conn.fetchrow("SELECT * FROM memories WHERE id = $1", record.id)
-            if persisted_row is None:
-                raise ValueError(f"Missing target: Memory record with ID {record.id} does not exist.")
+        # Check if record exists at all using RLS bypass to read actual metadata for immutable coordinate checks
+        async with rls_bypass():
+            async with scoped_connection("", "") as conn:
+                persisted_row = await conn.fetchrow("SELECT * FROM memories WHERE id = $1", record.id)
 
-            persisted = row_to_memory_record(persisted_row)
+                
+        if persisted_row is None:
+            raise ValueError(f"Missing target: Memory record with ID {record.id} does not exist.")
 
-            # 1. Verify immutable scope isolation
-            if persisted.tenant_id != record.tenant_id or persisted.user_id != record.user_id:
-                raise ValueError("Scope mismatch: tenant_id and user_id are immutable and cannot be altered.")
+        persisted = row_to_memory_record(persisted_row)
 
-            # 2. Verify immutable admission provenance
-            if persisted.initial_policy_decision != record.initial_policy_decision or persisted.initial_policy_reason != record.initial_policy_reason:
-                raise ValueError("Immutable admission provenance: initial_policy_decision and initial_policy_reason cannot be altered.")
+        # 1. Verify immutable scope isolation
+        if persisted.tenant_id != record.tenant_id or persisted.user_id != record.user_id:
+            raise ValueError("Scope mismatch: tenant_id and user_id are immutable and cannot be altered.")
 
-            # 3. Verify immutable coordinates
-            if persisted.memory_type != record.memory_type:
-                raise ValueError("Core coordinate mismatch: memory_type is immutable and cannot be altered.")
-            if persisted.identity_slot != record.identity_slot:
-                raise ValueError("Core coordinate mismatch: identity_slot is immutable and cannot be altered.")
+        # 2. Verify immutable admission provenance
+        if persisted.initial_policy_decision != record.initial_policy_decision or persisted.initial_policy_reason != record.initial_policy_reason:
+            raise ValueError("Immutable admission provenance: initial_policy_decision and initial_policy_reason cannot be altered.")
 
-            # 4. Verify terminal logical deletion
-            if persisted.status == MemoryStatus.DELETED:
-                is_compaction = (
-                    record.status == MemoryStatus.DELETED
-                    and record.content == "[COMPACTED]"
-                    and record.embedding is None
-                )
-                if not is_compaction:
-                    raise ValueError("Terminal deletion: cannot update a logically deleted memory record.")
+        # 3. Verify immutable coordinates
+        if persisted.memory_type != record.memory_type:
+            raise ValueError("Core coordinate mismatch: memory_type is immutable and cannot be altered.")
+        if persisted.identity_slot != record.identity_slot:
+            raise ValueError("Core coordinate mismatch: identity_slot is immutable and cannot be altered.")
 
-            # 5. Enforce segregation of deletion
-            if record.status == MemoryStatus.DELETED and persisted.status != MemoryStatus.DELETED:
-                raise ValueError("Segregation of deletion: logical deletion must occur via the delete() method.")
+        # 4. Verify terminal logical deletion
+        if persisted.status == MemoryStatus.DELETED:
+            is_compaction = (
+                record.status == MemoryStatus.DELETED
+                and record.content == "[COMPACTED]"
+                and record.embedding is None
+            )
+            if not is_compaction:
+                raise ValueError("Terminal deletion: cannot update a logically deleted memory record.")
 
-            new_updated_at = datetime.now(timezone.utc)
+        # 5. Enforce segregation of deletion
+        if record.status == MemoryStatus.DELETED and persisted.status != MemoryStatus.DELETED:
+            raise ValueError("Segregation of deletion: logical deletion must occur via the delete() method.")
 
-            await conn.execute(
+        # Verify version matching for OCC
+        if persisted.version != record.version:
+            raise ValueError("Concurrency conflict: Memory record version mismatch.")
+
+        new_updated_at = datetime.now(timezone.utc)
+
+        async with scoped_connection(record.tenant_id, record.user_id) as conn:
+            res = await conn.execute(
                 """
                 UPDATE memories SET
                     content = $4,
@@ -411,8 +478,9 @@ class PostgreSQLMemoryRepository(MemoryRepository):
                     archived_at = $15,
                     deleted_at = $16,
                     legal_hold = $17,
-                    expires_at = $18
-                WHERE id = $1 AND tenant_id = $2 AND user_id = $3
+                    expires_at = $18,
+                    version = version + 1
+                WHERE id = $1 AND tenant_id = $2 AND user_id = $3 AND version = $19
                 """,
                 record.id,
                 record.tenant_id,
@@ -432,35 +500,43 @@ class PostgreSQLMemoryRepository(MemoryRepository):
                 record.deleted_at,
                 record.legal_hold,
                 record.expires_at,
+                record.version,
             )
+            if "UPDATE 0" in res:
+                raise ValueError("Concurrency conflict: Memory record version mismatch.")
 
-            # Return updated record
-            copied = record.model_copy(deep=True)
-            copied.updated_at = new_updated_at
-            return copied
+        # Return updated record
+        copied = record.model_copy(deep=True)
+        copied.version = record.version + 1
+        copied.updated_at = new_updated_at
+        return copied
 
     async def delete(
         self, memory_id: UUID, tenant_id: str, user_id: str
     ) -> MemoryRecord:
-        async with get_connection() as conn:
-            persisted_row = await conn.fetchrow("SELECT * FROM memories WHERE id = $1", memory_id)
-            if persisted_row is None:
-                raise ValueError(f"Missing target: Memory record with ID {memory_id} does not exist.")
+        async with rls_bypass():
+            async with scoped_connection("", "") as conn:
+                persisted_row = await conn.fetchrow("SELECT * FROM memories WHERE id = $1", memory_id)
 
-            persisted = row_to_memory_record(persisted_row)
+                
+        if persisted_row is None:
+            raise ValueError(f"Missing target: Memory record with ID {memory_id} does not exist.")
 
-            # Verify scope
-            if persisted.tenant_id != tenant_id or persisted.user_id != user_id:
-                raise ValueError("Scope mismatch: unauthorized deletion attempt.")
+        persisted = row_to_memory_record(persisted_row)
 
-            # Enforce legal hold gating (fail-closed)
-            if persisted.legal_hold:
-                raise ValueError("Operation blocked: Memory record is under active legal hold.")
+        # Verify scope
+        if persisted.tenant_id != tenant_id or persisted.user_id != user_id:
+            raise ValueError("Scope mismatch: unauthorized deletion attempt.")
 
-            if persisted.status == MemoryStatus.DELETED:
-                return persisted
+        # Enforce legal hold gating (fail-closed)
+        if persisted.legal_hold:
+            raise ValueError("Operation blocked: Memory record is under active legal hold.")
 
-            now = datetime.now(timezone.utc)
+        if persisted.status == MemoryStatus.DELETED:
+            return persisted
+
+        now = datetime.now(timezone.utc)
+        async with scoped_connection(tenant_id, user_id) as conn:
             await conn.execute(
                 """
                 UPDATE memories SET
@@ -476,15 +552,15 @@ class PostgreSQLMemoryRepository(MemoryRepository):
                 now,
             )
 
-            persisted.status = MemoryStatus.DELETED
-            persisted.deleted_at = now
-            persisted.updated_at = now
-            return persisted
+        persisted.status = MemoryStatus.DELETED
+        persisted.deleted_at = now
+        persisted.updated_at = now
+        return persisted
 
     async def list_by_status(
         self, tenant_id: str, user_id: str, status: MemoryStatus
     ) -> List[MemoryRecord]:
-        async with get_connection() as conn:
+        async with scoped_connection(tenant_id, user_id) as conn:
             rows = await conn.fetch(
                 "SELECT * FROM memories WHERE tenant_id = $1 AND user_id = $2 AND status = $3 ORDER BY created_at DESC, id ASC",
                 tenant_id,
@@ -499,7 +575,7 @@ class PostgreSQLMemoryRepository(MemoryRepository):
         if limit <= 0:
             raise ValueError("Limit must be a positive integer greater than zero.")
 
-        async with get_connection() as conn:
+        async with scoped_connection(tenant_id, user_id) as conn:
             rows = await conn.fetch(
                 """
                 SELECT * FROM memories
@@ -520,7 +596,7 @@ class PostgreSQLMemoryRepository(MemoryRepository):
         memory_type: MemoryType,
         identity_slot: str,
     ) -> List[MemoryRecord]:
-        async with get_connection() as conn:
+        async with scoped_connection(tenant_id, user_id) as conn:
             rows = await conn.fetch(
                 """
                 SELECT * FROM memories
@@ -548,7 +624,7 @@ class PostgreSQLMemoryRepository(MemoryRepository):
         if query_embedding is not None and len(query_embedding) != 1536:
             raise ValueError("query_embedding must be exactly 1536 dimensions")
 
-        async with get_connection() as conn:
+        async with scoped_connection(tenant_id, user_id) as conn:
             if query_embedding is None:
                 rows = await conn.fetch(
                     """
@@ -578,13 +654,14 @@ class PostgreSQLMemoryRepository(MemoryRepository):
                 return [(row_to_memory_record(r), float(r["similarity"])) for r in rows]
 
 
+
 class PostgreSQLAuditRepository(AuditService):
     def __init__(self) -> None:
         self._events = PostgresDictProxy("memory_audit_logs")
 
     async def record(self, event: AuditEvent) -> AuditEvent:
         try:
-            async with get_connection() as conn:
+            async with scoped_connection(event.tenant_id, event.user_id) as conn:
                 await conn.execute(
                     """
                     INSERT INTO memory_audit_logs (
@@ -638,9 +715,10 @@ class PostgreSQLAuditRepository(AuditService):
             query += f" LIMIT ${idx}"
             params.append(limit)
 
-        async with get_connection() as conn:
+        async with scoped_connection(tenant_id, user_id) as conn:
             rows = await conn.fetch(query, *params)
             return [row_to_audit_event(r) for r in rows]
+
 
 
 class DateTimeEncoder(json.JSONEncoder):

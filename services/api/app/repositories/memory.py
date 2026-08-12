@@ -76,11 +76,17 @@ class InMemoryMemoryRepository(MemoryRepository):
             if record.status == MemoryStatus.DELETED and persisted.status != MemoryStatus.DELETED:
                 raise ValueError("Segregation of deletion: logical deletion must occur via the delete() method.")
                 
+            # Verify version matching for OCC
+            if persisted.version != record.version:
+                raise ValueError("Concurrency conflict: Memory record version mismatch.")
+                
             copied = record.model_copy(deep=True)
+            copied.version = record.version + 1
             copied.updated_at = datetime.now(timezone.utc)
             
             self._records[record.id] = copied
             return copied.model_copy(deep=True)
+
 
     async def delete(
         self, memory_id: UUID, tenant_id: str, user_id: str
