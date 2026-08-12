@@ -163,6 +163,17 @@ export const api = {
     );
   },
 
+  async getEvidence(
+    memoryId: string,
+    tenantId: string,
+    userId: string
+  ): Promise<Record<string, any>> {
+    return request<Record<string, any>>(
+      `/api/memories/${memoryId}/evidence?tenant_id=${tenantId}&user_id=${userId}`
+    );
+  },
+
+
   async getAudit(
     memoryId: string,
     tenantId: string,
