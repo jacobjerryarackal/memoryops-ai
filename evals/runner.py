@@ -500,10 +500,114 @@ async def run_evaluation():
     print(f"Emitted structured machine-readable evidence to: {evidence_path}")
     print("=" * 100)
 
-    if failed_cases > 0:
+    # GAP-07: Programmatic Quality Gates Validation
+    QUALITY_GATES = {
+        "mean_precision_at_k": {"threshold": 0.85, "op": "ge", "actual": mean_precision, "name": "Mean Precision@K"},
+        "mean_recall_at_k": {"threshold": 0.80, "op": "ge", "actual": mean_recall, "name": "Mean Recall@K"},
+        "mean_reciprocal_rank": {"threshold": 0.80, "op": "ge", "actual": mean_rr, "name": "Mean Reciprocal Rank (MRR)"},
+        "tenant_leakage_rate": {"threshold": 0.0, "op": "le", "actual": tenant_leak_rate, "name": "Tenant Leakage Rate"},
+        "user_leakage_rate": {"threshold": 0.0, "op": "le", "actual": user_leak_rate, "name": "User Leakage Rate"},
+        "inactive_memory_leakage_rate": {"threshold": 0.0, "op": "le", "actual": inactive_leak_rate, "name": "Inactive Memory Leakage Rate"},
+        "deleted_memory_leakage_rate": {"threshold": 0.0, "op": "le", "actual": deleted_leak_rate, "name": "Deleted Memory Leakage Rate"},
+        "budget_overflow_rate": {"threshold": 0.0, "op": "le", "actual": budget_overflow_rate, "name": "Budget Overflow Rate"},
+    }
+
+    gates_failed = False
+    gate_details = {}
+    
+    print("Programmatic Quality Gates Verification:")
+    print("-" * 100)
+    
+    for key, gate in QUALITY_GATES.items():
+        actual = gate["actual"]
+        thresh = gate["threshold"]
+        op = gate["op"]
+        name = gate["name"]
+        
+        if op == "ge":
+            passed = actual >= thresh
+            symbol = ">="
+        else:
+            passed = actual <= thresh
+            symbol = "<="
+            
+        status_str = "PASSED" if passed else "FAILED"
+        if not passed:
+            gates_failed = True
+            
+        gate_details[key] = {
+            "name": name,
+            "threshold": thresh,
+            "operator": symbol,
+            "actual": actual,
+            "status": status_str
+        }
+        
+        print(f"{name:<35} | Target: {symbol} {thresh:<6.2%} | Actual: {actual:<6.2%} | {status_str}")
+
+    print("=" * 100)
+
+    scorecard_status = "FAILED" if (gates_failed or failed_cases > 0) else "PASSED"
+
+    # Emit evals/scorecard.json
+    scorecard_data = {
+        "scorecard_status": scorecard_status,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "golden_dataset_metrics": {
+            "total_cases": total_cases,
+            "passed_cases": passed_cases,
+            "failed_cases": failed_cases
+        },
+        "gates": gate_details
+    }
+    
+    scorecard_json_path = os.path.join(os.path.dirname(__file__), "scorecard.json")
+    with open(scorecard_json_path, "w", encoding="utf-8") as f:
+        json.dump(scorecard_data, f, indent=2)
+    print(f"Emitted structured scorecard scorecard.json to: {scorecard_json_path}")
+
+    # Emit docs/evaluation/scorecard.md
+    docs_dir = os.path.join(os.path.dirname(__file__), "..", "docs", "evaluation")
+    os.makedirs(docs_dir, exist_ok=True)
+    scorecard_md_path = os.path.join(docs_dir, "scorecard.md")
+    
+    md_lines = [
+        "# MemoryOps AI — Quality Evaluation Scorecard",
+        "",
+        f"**Run Timestamp:** {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}",
+        f"**Overall Status:** `{scorecard_status}`",
+        "",
+        "## Golden Dataset Test Run Summary",
+        "",
+        f"- **Total Cases:** {total_cases}",
+        f"- **Passed Cases:** {passed_cases}",
+        f"- **Failed Cases:** {failed_cases}",
+        f"- **Golden Test Case Pass Rate:** {passed_cases / total_cases:.2%}",
+        "",
+        "## Programmatic Quality Gates",
+        "",
+        "| Quality Gate Metric | Operator | Target Threshold | Actual Performance | Status |",
+        "| :--- | :---: | :---: | :---: | :---: |"
+    ]
+    
+    for key, val in gate_details.items():
+        target_fmt = f"{val['threshold']:.2%}"
+        actual_fmt = f"{val['actual']:.2%}"
+        status_md = f"**{val['status']}**" if val["status"] == "FAILED" else f"{val['status']}"
+        md_lines.append(f"| {val['name']} | `{val['operator']}` | {target_fmt} | {actual_fmt} | {status_md} |")
+
+    with open(scorecard_md_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(md_lines) + "\n")
+        
+    print(f"Emitted markdown scorecard scorecard.md to: {scorecard_md_path}")
+    print("=" * 100)
+
+    if scorecard_status == "FAILED":
         sys.exit(1)
     else:
         sys.exit(0)
+
+
 
 
 if __name__ == "__main__":
