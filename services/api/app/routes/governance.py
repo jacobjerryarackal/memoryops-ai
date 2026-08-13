@@ -2,10 +2,11 @@ import uuid
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status, Header
+from fastapi import APIRouter, Depends, Query, status, Header, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
 from app.services.idempotency import idempotency_service
+from app.services.auth import Identity, ScopeChecker
 from pydantic import BaseModel, Field
 
 from ..domain.enums import MemoryStatus, MemoryType, Sensitivity
@@ -63,7 +64,13 @@ async def list_memories(
     status: Optional[MemoryStatus] = None,
     memory_type: Optional[MemoryType] = None,
     service: GovernanceService = Depends(get_governance_service),
+    identity: Identity = Depends(ScopeChecker("memory:read")),
 ):
+    if tenant_id != identity.tenant_id or user_id != identity.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tenant or User scope mismatch."
+        )
     records = await service.list_memories(
         tenant_id=tenant_id, user_id=user_id, status=status, memory_type=memory_type
     )
@@ -76,7 +83,13 @@ async def get_memory(
     tenant_id: str = Query(..., min_length=1),
     user_id: str = Query(..., min_length=1),
     service: GovernanceService = Depends(get_governance_service),
+    identity: Identity = Depends(ScopeChecker("memory:read")),
 ):
+    if tenant_id != identity.tenant_id or user_id != identity.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tenant or User scope mismatch."
+        )
     trace_id = f"trace-{uuid.uuid4()}"
     try:
         record = await service.get_memory_by_id(
@@ -96,7 +109,13 @@ async def get_provenance(
     tenant_id: str = Query(..., min_length=1),
     user_id: str = Query(..., min_length=1),
     service: GovernanceService = Depends(get_governance_service),
+    identity: Identity = Depends(ScopeChecker("memory:read")),
 ):
+    if tenant_id != identity.tenant_id or user_id != identity.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tenant or User scope mismatch."
+        )
     trace_id = f"trace-{uuid.uuid4()}"
     try:
         prov = await service.get_memory_provenance(
@@ -132,7 +151,13 @@ async def get_evidence(
     tenant_id: str = Query(..., min_length=1),
     user_id: str = Query(..., min_length=1),
     service: GovernanceService = Depends(get_governance_service),
+    identity: Identity = Depends(ScopeChecker("audit:read")),
 ):
+    if tenant_id != identity.tenant_id or user_id != identity.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tenant or User scope mismatch."
+        )
     trace_id = f"trace-{uuid.uuid4()}"
     try:
         evidence = await service.get_memory_evidence(
@@ -147,14 +172,19 @@ async def get_evidence(
 
 
 @router.get("/memories/{memory_id}/audit", response_model=List[AuditEvent])
-
 async def get_audit(
     memory_id: UUID,
     tenant_id: str = Query(..., min_length=1),
     user_id: str = Query(..., min_length=1),
     limit: Optional[int] = Query(None, ge=1),
     service: GovernanceService = Depends(get_governance_service),
+    identity: Identity = Depends(ScopeChecker("audit:read")),
 ):
+    if tenant_id != identity.tenant_id or user_id != identity.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tenant or User scope mismatch."
+        )
     trace_id = f"trace-{uuid.uuid4()}"
     try:
         events = await service.get_memory_audit(
@@ -174,10 +204,18 @@ async def patch_memory(
     request: PatchMemoryRequest,
     service: GovernanceService = Depends(get_governance_service),
     x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
+    identity: Identity = Depends(ScopeChecker("memory:write")),
 ):
+    if request.tenant_id != identity.tenant_id or request.user_id != identity.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tenant or User scope mismatch."
+        )
+    
+    payload_dict = request.model_dump() if hasattr(request, "model_dump") else request.dict()
     if x_idempotency_key:
         cached = await idempotency_service.get_cached_response(
-            x_idempotency_key, request.tenant_id, request.user_id
+            x_idempotency_key, request.tenant_id, request.user_id, payload_dict
         )
         if cached:
             status_code, body = cached
@@ -203,30 +241,40 @@ async def patch_memory(
         encoded = jsonable_encoder(updated)
         if x_idempotency_key:
             await idempotency_service.cache_response(
-                x_idempotency_key, request.tenant_id, request.user_id, 200, encoded
+                x_idempotency_key, request.tenant_id, request.user_id, 200, encoded, payload_dict
             )
         return updated
     except GovernanceTargetUnavailableError as e:
+        if x_idempotency_key:
+            await idempotency_service.remove_lock(x_idempotency_key, request.tenant_id, request.user_id)
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
             content=make_error_response("MEMORY_NOT_FOUND", str(e), trace_id),
         )
     except GovernanceInvalidTransitionError as e:
+        if x_idempotency_key:
+            await idempotency_service.remove_lock(x_idempotency_key, request.tenant_id, request.user_id)
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content=make_error_response("INVALID_LIFECYCLE_TRANSITION", str(e), trace_id),
         )
     except GovernanceValidationError as e:
+        if x_idempotency_key:
+            await idempotency_service.remove_lock(x_idempotency_key, request.tenant_id, request.user_id)
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content=make_error_response("VALIDATION_ERROR", str(e), trace_id),
         )
     except GovernancePolicyBlockedError as e:
+        if x_idempotency_key:
+            await idempotency_service.remove_lock(x_idempotency_key, request.tenant_id, request.user_id)
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content=make_error_response("POLICY_BLOCKED", str(e), trace_id),
         )
     except Exception as e:
+        if x_idempotency_key:
+            await idempotency_service.remove_lock(x_idempotency_key, request.tenant_id, request.user_id)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content=make_error_response("INTERNAL_ERROR", str(e), trace_id),
@@ -239,10 +287,18 @@ async def delete_memory(
     request: DeleteMemoryRequest,
     service: GovernanceService = Depends(get_governance_service),
     x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
+    identity: Identity = Depends(ScopeChecker("governance:admin")),
 ):
+    if request.tenant_id != identity.tenant_id or request.user_id != identity.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tenant or User scope mismatch."
+        )
+    
+    payload_dict = request.model_dump() if hasattr(request, "model_dump") else request.dict()
     if x_idempotency_key:
         cached = await idempotency_service.get_cached_response(
-            x_idempotency_key, request.tenant_id, request.user_id
+            x_idempotency_key, request.tenant_id, request.user_id, payload_dict
         )
         if cached:
             status_code, body = cached
@@ -267,15 +323,19 @@ async def delete_memory(
         encoded = jsonable_encoder(resp_obj)
         if x_idempotency_key:
             await idempotency_service.cache_response(
-                x_idempotency_key, request.tenant_id, request.user_id, 200, encoded
+                x_idempotency_key, request.tenant_id, request.user_id, 200, encoded, payload_dict
             )
         return resp_obj
     except GovernanceTargetUnavailableError as e:
+        if x_idempotency_key:
+            await idempotency_service.remove_lock(x_idempotency_key, request.tenant_id, request.user_id)
         return JSONResponse(
             status_code=status.HTTP_404_NOT_FOUND,
             content=make_error_response("MEMORY_NOT_FOUND", str(e), trace_id),
         )
     except Exception as e:
+        if x_idempotency_key:
+            await idempotency_service.remove_lock(x_idempotency_key, request.tenant_id, request.user_id)
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content=make_error_response("INTERNAL_ERROR", str(e), trace_id),
@@ -289,7 +349,13 @@ async def list_audit(
     memory_id: Optional[UUID] = Query(None),
     limit: Optional[int] = Query(None, ge=1),
     service: GovernanceService = Depends(get_governance_service),
+    identity: Identity = Depends(ScopeChecker("audit:read")),
 ):
+    if tenant_id != identity.tenant_id or (user_id and user_id != identity.user_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tenant or User scope mismatch."
+        )
     events = await service.audit_service.list_events(
         tenant_id=tenant_id,
         user_id=user_id,
@@ -303,6 +369,12 @@ async def list_audit(
 async def get_metrics(
     tenant_id: str = Query(..., min_length=1),
     service: GovernanceService = Depends(get_governance_service),
+    identity: Identity = Depends(ScopeChecker("governance:admin")),
 ):
+    if tenant_id != identity.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tenant scope mismatch."
+        )
     metrics = await service.get_metrics(tenant_id=tenant_id)
     return metrics
