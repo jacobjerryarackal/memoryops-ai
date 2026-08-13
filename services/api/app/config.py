@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     # Production-safety and defaults
     environment: str = Field(default="development")
 
+    # JWT Configuration
+    jwt_secret: str = Field(default="memoryops-jwt-secret-key-change-in-production")
+    jwt_algorithms: list = Field(default=["HS256"])
+    jwt_issuer: str = Field(default="memoryops-ai")
+    jwt_audience: str = Field(default="memoryops-ai-clients")
+
     @field_validator("database_type")
     @classmethod
     def validate_database_type(cls, v: str) -> str:
