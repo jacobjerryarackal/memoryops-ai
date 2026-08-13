@@ -140,16 +140,6 @@ class Ranker:
             # 6. Reinforcement score
             reinforcement_score = 1.0 - math.exp(-cand.memory.reinforcement_count / 5.0)
 
-            # Construct breakdown (validates [0, 1] range and finiteness)
-            breakdown = ScoreBreakdown(
-                semantic_score=semantic_score,
-                keyword_score=keyword_score,
-                importance_score=importance_score,
-                recency_score=recency_score,
-                confidence_score=confidence_score,
-                reinforcement_score=reinforcement_score,
-            )
-
             # Calculate full-precision weighted final score (no pre-sort rounding)
             final_score = (
                 0.35 * semantic_score
@@ -158,6 +148,20 @@ class Ranker:
                 + 0.10 * recency_score
                 + 0.10 * confidence_score
                 + 0.10 * reinforcement_score
+            )
+
+            # Construct breakdown (validates [0, 1] range and finiteness)
+            breakdown = ScoreBreakdown(
+                semantic_score=semantic_score,
+                keyword_score=keyword_score,
+                importance_score=importance_score,
+                recency_score=recency_score,
+                confidence_score=confidence_score,
+                reinforcement_score=reinforcement_score,
+                lexical_score=keyword_score,
+                policy_score=1.0,
+                final_score=final_score,
+                rank=1,
             )
 
             scored_candidates.append((cand.memory, final_score, breakdown))
@@ -173,6 +177,7 @@ class Ranker:
         # Assign positional ranks and wrap in RankedCandidate
         ranked = []
         for i, (record, final_score, breakdown) in enumerate(scored_candidates):
+            breakdown.rank = i + 1
             ranked.append(
                 RankedCandidate(
                     memory=record,
@@ -243,6 +248,18 @@ class ContextComposer:
                 excerpt=cand.memory.source_excerpt,
             )
 
+            ranking_explanation = {
+                "semantic_score": cand.score_breakdown.semantic_score,
+                "lexical_score": cand.score_breakdown.lexical_score,
+                "importance_score": cand.score_breakdown.importance_score,
+                "recency_score": cand.score_breakdown.recency_score,
+                "confidence_score": cand.score_breakdown.confidence_score,
+                "reinforcement_score": cand.score_breakdown.reinforcement_score,
+                "policy_score": cand.score_breakdown.policy_score,
+                "final_score": cand.final_score,
+                "rank": cand.rank
+            }
+
             # Preserve full precision score and breakdown
             used_memories.append(
                 UsedMemory(
@@ -253,6 +270,7 @@ class ContextComposer:
                     reason=reason,
                     score_breakdown=cand.score_breakdown,
                     source=source_obj,
+                    ranking_explanation=ranking_explanation,
                 )
             )
 
@@ -347,6 +365,44 @@ class KeywordDenyPolicy(AdmissionPolicy):
         return AdmissionDecision.ALLOW, None
 
 
+class ConfidenceDenyPolicy(AdmissionPolicy):
+    """
+    Blocks memory completely if extraction confidence is below threshold.
+    """
+    def __init__(self, threshold: float = 0.3) -> None:
+        self.threshold = threshold
+
+    def evaluate(self, candidate: RankedCandidate) -> Tuple[AdmissionDecision, Optional[str]]:
+        if candidate.memory.confidence < self.threshold:
+            return AdmissionDecision.DENY, f"Low confidence {candidate.memory.confidence} blocked."
+        return AdmissionDecision.ALLOW, None
+
+
+class ConfidenceDownrankPolicy(AdmissionPolicy):
+    """
+    Reduces candidate score if memory extraction confidence is low.
+    """
+    def __init__(self, threshold: float = 0.5, penalty: float = 0.3) -> None:
+        self.threshold = threshold
+        self.penalty = penalty
+
+    def evaluate(self, candidate: RankedCandidate) -> Tuple[AdmissionDecision, Optional[str]]:
+        if candidate.memory.confidence < self.threshold:
+            return AdmissionDecision.DOWNRANK, str(self.penalty)
+        return AdmissionDecision.ALLOW, None
+
+
+class SensitivityDenyPolicy(AdmissionPolicy):
+    """
+    Blocks memory completely if it has Sensitivity.HIGH.
+    """
+    def evaluate(self, candidate: RankedCandidate) -> Tuple[AdmissionDecision, Optional[str]]:
+        from ..domain.enums import Sensitivity
+        if candidate.memory.sensitivity == Sensitivity.HIGH:
+            return AdmissionDecision.DENY, "High sensitivity memory access blocked in context admission."
+        return AdmissionDecision.ALLOW, None
+
+
 class ContextAdmissionLayer:
     """
     Admission layer that applies filters and policies to RankedCandidates.
@@ -381,8 +437,9 @@ class ContextAdmissionLayer:
                     current_cand.memory.content = val
                 elif decision == AdmissionDecision.DOWNRANK and val:
                     current_cand.final_score = max(0.0, current_cand.final_score - float(val))
+                    current_cand.score_breakdown.policy_score = max(0.0, current_cand.score_breakdown.policy_score - float(val))
+                    current_cand.score_breakdown.final_score = current_cand.final_score
                     any_downranked = True
-
 
             if not denied:
                 admitted.append(current_cand)
@@ -395,6 +452,7 @@ class ContextAdmissionLayer:
             
             for i, cand in enumerate(admitted):
                 cand.rank = i + 1
+                cand.score_breakdown.rank = i + 1
 
         return admitted
 
