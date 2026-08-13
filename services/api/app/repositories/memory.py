@@ -21,6 +21,9 @@ class InMemoryMemoryRepository(MemoryRepository):
             if record.id in self._records:
                 raise ValueError(f"Duplicate key: Memory record with ID {record.id} already exists.")
             
+            from .transactions import log_in_memory_write
+            log_in_memory_write("records", record.id, None)
+
             # Deep copy to protect the database state from external modification
             copied = record.model_copy(deep=True)
             self._records[record.id] = copied
@@ -80,6 +83,9 @@ class InMemoryMemoryRepository(MemoryRepository):
             if persisted.version != record.version:
                 raise ValueError("Concurrency conflict: Memory record version mismatch.")
                 
+            from .transactions import log_in_memory_write
+            log_in_memory_write("records", record.id, persisted)
+
             copied = record.model_copy(deep=True)
             copied.version = record.version + 1
             copied.updated_at = datetime.now(timezone.utc)
@@ -107,6 +113,9 @@ class InMemoryMemoryRepository(MemoryRepository):
             if persisted.status == MemoryStatus.DELETED:
                 return persisted.model_copy(deep=True)
                 
+            from .transactions import log_in_memory_write
+            log_in_memory_write("records", memory_id, persisted)
+
             persisted.status = MemoryStatus.DELETED
             persisted.deleted_at = datetime.now(timezone.utc)
             persisted.updated_at = datetime.now(timezone.utc)

@@ -12,8 +12,27 @@ logger = logging.getLogger("app.repositories.transactions")
 # Contextvar to hold the active PostgreSQL connection for the transaction
 db_tx_conn = contextvars.ContextVar("db_tx_conn", default=None)
 
-# Contextvar to hold the stack of in-memory snapshots for nested rollback simulation
-in_memory_tx_snapshots = contextvars.ContextVar("in_memory_tx_snapshots", default=None)
+# Contextvar to hold the stack of in-memory undo logs for nested rollback simulation
+in_memory_tx_undo_logs = contextvars.ContextVar("in_memory_tx_undo_logs", default=None)
+
+
+def log_in_memory_write(category: str, key: Any, original_value: Any) -> None:
+    """
+    Log original state of a key before modification to allow targeted rollback.
+    """
+    stack = in_memory_tx_undo_logs.get()
+    if stack:
+        current_log = stack[-1]
+        if key not in current_log[category]:
+            if original_value is not None:
+                if hasattr(original_value, "model_copy"):
+                    copied = original_value.model_copy(deep=True)
+                else:
+                    import copy
+                    copied = copy.deepcopy(original_value)
+            else:
+                copied = None
+            current_log[category][key] = copied
 
 
 class TransactionManager:
@@ -54,47 +73,49 @@ class TransactionManager:
                         finally:
                             db_tx_conn.reset(token)
             else:
-                # In-Memory simulated transaction rollback
+                # In-Memory simulated transaction rollback using undo logs
                 from ..runtime import get_memory_repository, get_audit_service
                 repo = get_memory_repository()
                 audit = get_audit_service()
 
-                # Detect internal dictionary storage
                 has_records = hasattr(repo, "_records") and isinstance(repo._records, dict)
                 has_events = hasattr(audit, "_events") and isinstance(audit._events, dict)
 
-                # Capture snapshot of state
-                snapshot = {}
-                if has_records:
-                    snapshot["records"] = dict(repo._records)
-                if has_events:
-                    snapshot["events"] = dict(audit._events)
+                # Initialize undo log for this level
+                undo_log = {"records": {}, "events": {}}
 
-                # Get or initialize the snapshot stack in contextvars
-                stack = in_memory_tx_snapshots.get()
+                stack = in_memory_tx_undo_logs.get()
                 token_stack = None
                 if stack is None:
                     stack = []
-                    token_stack = in_memory_tx_snapshots.set(stack)
+                    token_stack = in_memory_tx_undo_logs.set(stack)
 
-                stack.append(snapshot)
-                logger.debug(f"Pushed in-memory snapshot (stack depth: {len(stack)})")
+                stack.append(undo_log)
+                logger.debug(f"Pushed in-memory undo log (stack depth: {len(stack)})")
 
                 try:
                     yield
-                    # Block completed successfully: discard the snapshot from stack
+                    # Block completed successfully: discard undo log from stack
                     stack.pop()
                 except Exception as e:
-                    logger.warning(f"Exception raised in in-memory transaction: {e}. Restoring snapshot state.")
-                    # Rollback: pop and restore the captured snapshot
-                    snap = stack.pop()
-                    if has_records and "records" in snap:
-                        repo._records.clear()
-                        repo._records.update(snap["records"])
-                    if has_events and "events" in snap:
-                        audit._events.clear()
-                        audit._events.update(snap["events"])
+                    logger.warning(f"Exception raised in in-memory transaction: {e}. Restoring state via undo logs.")
+                    # Rollback: pop and restore the captured keys for this block
+                    log = stack.pop()
+                    
+                    if has_records:
+                        for k, v in log["records"].items():
+                            if v is None:
+                                repo._records.pop(k, None)
+                            else:
+                                repo._records[k] = v
+                                
+                    if has_events:
+                        for k, v in log["events"].items():
+                            if v is None:
+                                audit._events.pop(k, None)
+                            else:
+                                audit._events[k] = v
                     raise
                 finally:
                     if token_stack is not None:
-                        in_memory_tx_snapshots.reset(token_stack)
+                        in_memory_tx_undo_logs.reset(token_stack)

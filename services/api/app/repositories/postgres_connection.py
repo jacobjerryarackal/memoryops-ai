@@ -14,6 +14,14 @@ async def init_connection(conn: asyncpg.Connection) -> None:
     """
     try:
         await register_vector(conn)
+        
+        # Check if connected as superuser and log a warning
+        is_super = await conn.fetchval("SELECT usesuper FROM pg_user WHERE usename = current_user")
+        if is_super:
+            logger.warning(
+                "DATABASE SECURITY WARNING: Connected to PostgreSQL as a superuser. "
+                "Row-Level Security (RLS) policies will be bypassed by default for all queries."
+            )
     except Exception as e:
         logger.error(f"Failed to register pgvector on database connection: {e}")
         # Note: If the vector extension is not yet installed in the target DB,
