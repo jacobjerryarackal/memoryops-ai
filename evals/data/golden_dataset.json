@@ -186,7 +186,7 @@
     {
       "id": "TC-TEN-001",
       "category": "cross_tenant_isolation",
-      "difficulty": "easy",
+      "difficulty": "security-sensitive",
       "description": "Ensure Tenant A cannot retrieve Tenant B memories.",
       "tenant_id": "tenant_a",
       "user_id": "user_a",
@@ -220,7 +220,7 @@
     {
       "id": "TC-USR-001",
       "category": "cross_user_isolation",
-      "difficulty": "easy",
+      "difficulty": "security-sensitive",
       "description": "Ensure User A cannot retrieve User B memories.",
       "tenant_id": "tenant_a",
       "user_id": "user_a",
@@ -454,7 +454,7 @@
     {
       "id": "TC-POL-001",
       "category": "policy_validation",
-      "difficulty": "easy",
+      "difficulty": "security-sensitive",
       "description": "Verify Policy Broker blocks secrets (AWS keys).",
       "tenant_id": "tenant_a",
       "user_id": "user_a",
@@ -478,7 +478,7 @@
     {
       "id": "TC-POL-003",
       "category": "policy_validation",
-      "difficulty": "medium",
+      "difficulty": "contradictory",
       "description": "Verify Policy Broker updates existing memory content in registered SINGLE slot.",
       "tenant_id": "tenant_a",
       "user_id": "user_a",
@@ -502,7 +502,7 @@
     {
       "id": "TC-POL-004",
       "category": "policy_validation",
-      "difficulty": "medium",
+      "difficulty": "security-sensitive",
       "description": "Verify Policy Broker blocks password credential assignment.",
       "tenant_id": "tenant_a",
       "user_id": "user_a",
@@ -510,6 +510,231 @@
       "seed_memories": [],
       "expected_retrieved_contents": [],
       "expected_policy_decision": "BLOCK"
+    },
+    {
+      "id": "TC-TRP-001",
+      "category": "retrieval_relevance",
+      "difficulty": "adversarial",
+      "description": "Lexical trap: query matching irrelevant keywords (distractors) to check if semantic overrides it.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "drinking orange juice in the morning",
+      "query_embedding": [1.0, 0.0],
+      "seed_memories": [
+        {
+          "content": "morning query orange orange orange juice",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 1,
+          "confidence": 0.2,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true,
+          "embedding": [0.0, 0.0]
+        },
+        {
+          "content": "I enjoy consuming citrus beverages during breakfast",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 8,
+          "confidence": 0.9,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true,
+          "embedding": [1.0, 0.0]
+        }
+      ],
+      "expected_retrieved_contents": [
+        "I enjoy consuming citrus beverages during breakfast"
+      ]
+    },
+    {
+      "id": "TC-TRP-002",
+      "category": "retrieval_relevance",
+      "difficulty": "adversarial",
+      "description": "Semantic trap: query with synonyms/meaning but no matching words to verify pgvector semantic retrieval.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "the capital of Germany",
+      "query_embedding": [1.0, 0.0],
+      "seed_memories": [
+        {
+          "content": "capital city country Berlin is Germany",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 9,
+          "confidence": 0.9,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true,
+          "embedding": [1.0, 0.0]
+        },
+        {
+          "content": "the capital of France is Paris",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 8,
+          "confidence": 0.9,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true,
+          "embedding": [0.0, 0.0]
+        }
+      ],
+      "expected_retrieved_contents": [
+        "capital city country Berlin is Germany"
+      ]
+    },
+    {
+      "id": "TC-CON-001",
+      "category": "retrieval_relevance",
+      "difficulty": "contradictory",
+      "description": "Contradictions: Conflict resolution between opposing statements where newer memory wins.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "where does Jacob live",
+      "seed_memories": [
+        {
+          "content": "Jacob lives in London.",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 5,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true,
+          "created_at": "2026-07-15T10:00:00Z",
+          "updated_at": "2026-07-15T10:00:00Z"
+        },
+        {
+          "content": "Jacob lives in Berlin.",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 5,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true,
+          "created_at": "2026-07-15T12:00:00Z",
+          "updated_at": "2026-07-15T12:00:00Z"
+        }
+      ],
+      "expected_retrieved_contents": [
+        "Jacob lives in Berlin."
+      ]
+    },
+    {
+      "id": "TC-SEC-001",
+      "category": "admission_validation",
+      "difficulty": "security-sensitive",
+      "description": "PII/Security: Verify redaction of email, phone, and secret token keys.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "pii query",
+      "seed_memories": [
+        {
+          "content": "Contact support at admin@example.com or call 111-222-3333. API key=mysecrettoken999",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 5,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": [
+        "Contact support at [EMAIL_REDACTED] or call [PHONE_REDACTED]. [SECRET_REDACTED]"
+      ]
+    },
+    {
+      "id": "TC-SEC-002",
+      "category": "admission_validation",
+      "difficulty": "security-sensitive",
+      "description": "Verify KeywordDenyPolicy blocks matching memories.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "nuclear query",
+      "seed_memories": [
+        {
+          "content": "The nuclear launch codes are kept in room 4B.",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 8,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": []
+    },
+    {
+      "id": "TC-SEC-003",
+      "category": "admission_validation",
+      "difficulty": "security-sensitive",
+      "description": "Verify SensitivityDenyPolicy blocks memories marked as Sensitivity.HIGH.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "classified query",
+      "seed_memories": [
+        {
+          "content": "This is classified military document info.",
+          "memory_type": "semantic",
+          "status": "active",
+          "sensitivity": "high",
+          "importance": 8,
+          "confidence": 1.0,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": []
+    },
+    {
+      "id": "TC-SEC-004",
+      "category": "admission_validation",
+      "difficulty": "security-sensitive",
+      "description": "Verify low confidence downranking/exclusion policy.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "low confidence memory query",
+      "seed_memories": [
+        {
+          "content": "I might go to Berlin tomorrow.",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 5,
+          "confidence": 0.2,
+          "tenant_id": "tenant_a",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": []
+    },
+    {
+      "id": "TC-ADV-001",
+      "category": "cross_tenant_isolation",
+      "difficulty": "adversarial",
+      "description": "Verify cross-tenant retrieval attempt blocks/filters access completely.",
+      "tenant_id": "tenant_a",
+      "user_id": "user_a",
+      "query": "cross-tenant leak query",
+      "seed_memories": [
+        {
+          "content": "Tenant B sensitive memory details",
+          "memory_type": "semantic",
+          "status": "active",
+          "importance": 8,
+          "confidence": 1.0,
+          "tenant_id": "tenant_b",
+          "user_id": "user_a",
+          "has_embedding": true
+        }
+      ],
+      "expected_retrieved_contents": []
     }
   ]
 }
