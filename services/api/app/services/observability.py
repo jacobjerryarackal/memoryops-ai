@@ -1,6 +1,7 @@
 import time
 import json
 import uuid
+import sys
 import logging
 import asyncio
 import functools
@@ -14,6 +15,14 @@ logger = logging.getLogger("app.observability")
 class ObservabilityService:
     def __init__(self, logger_name: str = "app.observability") -> None:
         self.logger = logging.getLogger(logger_name)
+        self.logger.setLevel(logging.INFO)
+        if not self.logger.handlers:
+            ch = logging.StreamHandler(sys.stdout)
+            ch.setLevel(logging.INFO)
+            formatter = logging.Formatter('%(message)s')
+            ch.setFormatter(formatter)
+            self.logger.addHandler(ch)
+            self.logger.propagate = False
         self.recorded_events: List[Dict[str, Any]] = []
         self._test_mode: bool = False
         self._exporters_available: bool = True

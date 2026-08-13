@@ -15,7 +15,7 @@ from ..policy.registry import SlotCardinality
 from ..repositories.base import MemoryRepository
 from ..repositories.transactions import TransactionManager
 from .audit import AuditService
-
+from ..services.observability import trace_class
 
 class GovernanceError(Exception):
     pass
@@ -37,6 +37,7 @@ class GovernancePolicyBlockedError(GovernanceError):
     pass
 
 
+@trace_class("governance")
 class GovernanceService:
     def __init__(
         self,
@@ -64,13 +65,16 @@ class GovernanceService:
         user_id: str,
         status: Optional[MemoryStatus] = None,
         memory_type: Optional[MemoryType] = None,
+        limit: Optional[int] = None,
+        offset: Optional[int] = None,
+        trace_id: Optional[str] = None,
     ) -> List[MemoryRecord]:
         """
         Lists memories scoped by tenant and user, with optional filters.
         Deleted memories are excluded by default if status is not explicitly requested.
         """
         if status is not None:
-            records = await self.repository.list_by_status(tenant_id, user_id, status)
+            records = await self.repository.list_by_status(tenant_id, user_id, status, trace_id=trace_id)
         else:
             # Default behavior: exclude DELETED. Gather active, pending, rejected, archived.
             records = []
@@ -80,7 +84,7 @@ class GovernanceService:
                 MemoryStatus.REJECTED,
                 MemoryStatus.ARCHIVED,
             ]:
-                records.extend(await self.repository.list_by_status(tenant_id, user_id, s))
+                records.extend(await self.repository.list_by_status(tenant_id, user_id, s, trace_id=trace_id))
 
         # Filter by memory type if provided
         if memory_type is not None:
@@ -90,16 +94,21 @@ class GovernanceService:
         records.sort(key=lambda r: r.id)
         records.sort(key=lambda r: r.created_at, reverse=True)
 
+        if offset is not None:
+            records = records[offset:]
+        if limit is not None:
+            records = records[:limit]
+
         return records
 
     async def get_memory_by_id(
-        self, memory_id: UUID, tenant_id: str, user_id: str
+        self, memory_id: UUID, tenant_id: str, user_id: str, trace_id: Optional[str] = None
     ) -> MemoryRecord:
         """
         Retrieves a single memory record by ID under tenant/user scope.
         Excludes DELETED records.
         """
-        record = await self.repository.get_by_id(memory_id, tenant_id, user_id)
+        record = await self.repository.get_by_id(memory_id, tenant_id, user_id, trace_id=trace_id)
         if record is None or record.status == MemoryStatus.DELETED:
             raise GovernanceTargetUnavailableError(
                 "Memory was not found within the requested scope."
@@ -107,14 +116,14 @@ class GovernanceService:
         return record
 
     async def get_memory_provenance(
-        self, memory_id: UUID, tenant_id: str, user_id: str
+        self, memory_id: UUID, tenant_id: str, user_id: str, trace_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Retrieves memory record provenance details and audit event IDs.
         """
-        record = await self.get_memory_by_id(memory_id, tenant_id, user_id)
+        record = await self.get_memory_by_id(memory_id, tenant_id, user_id, trace_id=trace_id)
         events = await self.audit_service.list_events(
-            tenant_id=tenant_id, user_id=user_id, memory_id=memory_id
+            tenant_id=tenant_id, user_id=user_id, memory_id=memory_id, trace_id=trace_id
         )
         # Stable sort: created_at DESC, then id ASC
         events.sort(key=lambda e: e.id)
@@ -139,15 +148,15 @@ class GovernanceService:
         }
 
     async def get_memory_evidence(
-        self, memory_id: UUID, tenant_id: str, user_id: str
+        self, memory_id: UUID, tenant_id: str, user_id: str, trace_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Retrieves complete structured memory evidence, including initial policy parameters,
         metadata origin, and the full audit trail.
         """
-        record = await self.get_memory_by_id(memory_id, tenant_id, user_id)
+        record = await self.get_memory_by_id(memory_id, tenant_id, user_id, trace_id=trace_id)
         events = await self.audit_service.list_events(
-            tenant_id=tenant_id, user_id=user_id, memory_id=memory_id
+            tenant_id=tenant_id, user_id=user_id, memory_id=memory_id, trace_id=trace_id
         )
         # Stable sort: created_at DESC, then id ASC
         events.sort(key=lambda e: e.id)
@@ -169,18 +178,18 @@ class GovernanceService:
 
     async def get_memory_audit(
 
-        self, memory_id: UUID, tenant_id: str, user_id: str, limit: Optional[int] = None
+        self, memory_id: UUID, tenant_id: str, user_id: str, limit: Optional[int] = None, trace_id: Optional[str] = None
     ) -> List[AuditEvent]:
         """
         Retrieves the audit timeline for one memory record.
         """
         # Ensure the record exists and is not deleted
-        await self.get_memory_by_id(memory_id, tenant_id, user_id)
+        await self.get_memory_by_id(memory_id, tenant_id, user_id, trace_id=trace_id)
         return await self.audit_service.list_events(
-            tenant_id=tenant_id, user_id=user_id, memory_id=memory_id, limit=limit
+            tenant_id=tenant_id, user_id=user_id, memory_id=memory_id, limit=limit, trace_id=trace_id
         )
 
-    async def get_metrics(self, tenant_id: str) -> Dict[str, Any]:
+    async def get_metrics(self, tenant_id: str, trace_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Returns tenant-scoped business and governance metrics.
         """
@@ -205,7 +214,7 @@ class GovernanceService:
             if status_val in by_status:
                 by_status[status_val] += 1
 
-        events = await self.audit_service.list_events(tenant_id=tenant_id)
+        events = await self.audit_service.list_events(tenant_id=tenant_id, trace_id=trace_id)
         by_action = {
             "memory_created": 0,
             "memory_deleted": 0,
@@ -243,7 +252,7 @@ class GovernanceService:
         Enforces coordinate immutability and content-safety gating.
         """
         async with self.transaction_manager.transaction():
-            existing = await self.repository.get_by_id(memory_id, tenant_id, user_id)
+            existing = await self.repository.get_by_id(memory_id, tenant_id, user_id, trace_id=trace_id)
             if existing is None or existing.status == MemoryStatus.DELETED:
                 raise GovernanceTargetUnavailableError(
                     "Memory was not found within the requested scope."
@@ -285,6 +294,7 @@ class GovernanceService:
                             user_id=user_id,
                             memory_type=existing.memory_type,
                             identity_slot=existing.identity_slot,
+                            trace_id=trace_id,
                         )
                         if len(active_occupants) > 0:
                             raise GovernanceValidationError(
@@ -310,7 +320,7 @@ class GovernanceService:
                     source_excerpt=source_excerpt if source_excerpt is not None else existing.source_excerpt,
                     identity_slot=existing.identity_slot,
                 )
-                policy_result = await self.broker.evaluate(candidate)
+                policy_result = await self.broker.evaluate(candidate, trace_id=trace_id)
                 if policy_result.decision == PolicyDecision.BLOCK:
                     raise GovernancePolicyBlockedError(policy_result.reason)
                 elif policy_result.decision == PolicyDecision.PENDING_APPROVAL:
@@ -347,7 +357,7 @@ class GovernanceService:
             elif updated_status == MemoryStatus.ACTIVE:
                 updated_record.archived_at = None
 
-            saved = await self.repository.update(updated_record)
+            saved = await self.repository.update(updated_record, trace_id=trace_id)
 
             # 4. Record Audit Trail (INV-008 / Phase 15)
             audit_event = AuditEvent(
@@ -379,7 +389,7 @@ class GovernanceService:
         Idempotent: if already deleted, returns the existing record without generating audit events.
         """
         async with self.transaction_manager.transaction():
-            existing = await self.repository.get_by_id(memory_id, tenant_id, user_id)
+            existing = await self.repository.get_by_id(memory_id, tenant_id, user_id, trace_id=trace_id)
             if existing is None:
                 raise GovernanceTargetUnavailableError(
                     "Memory was not found within the requested scope."
@@ -394,7 +404,7 @@ class GovernanceService:
                 return existing
 
             # Mark deleted
-            deleted = await self.repository.delete(memory_id, tenant_id, user_id)
+            deleted = await self.repository.delete(memory_id, tenant_id, user_id, trace_id=trace_id)
 
             # Emit audit trail
             audit_event = AuditEvent(

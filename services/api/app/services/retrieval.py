@@ -18,6 +18,7 @@ from .embedding import EmbeddingService
 import time
 import uuid
 from .retrieval_telemetry import RetrievalTelemetry, NoOpRetrievalTelemetry
+from ..services.observability import trace_class
 
 
 
@@ -41,6 +42,7 @@ def normalize_text(text: str) -> List[str]:
     return [t for t in cleaned_text.split() if t]
 
 
+@trace_class("retrieval")
 class Retriever:
     def __init__(self, repository: MemoryRepository) -> None:
         self.repository = repository
@@ -52,6 +54,7 @@ class Retriever:
         query_text: str,
         query_embedding: Optional[List[float]],
         candidate_limit: int = 50,
+        trace_id: Optional[str] = None,
     ) -> List[RetrievalCandidate]:
         # Delegate to repository to get scoped active candidate records
         repo_results = await self.repository.search_candidates(
@@ -59,6 +62,7 @@ class Retriever:
             user_id=user_id,
             query_embedding=query_embedding,
             limit=candidate_limit,
+            trace_id=trace_id,
         )
 
         if not repo_results:
@@ -98,6 +102,7 @@ class Retriever:
         return candidates
 
 
+@trace_class("retrieval")
 class Ranker:
     def rank(
         self,
@@ -190,6 +195,7 @@ class Ranker:
         return ranked
 
 
+@trace_class("retrieval")
 class ContextComposer:
     def __init__(self, max_memories: int = 10, max_characters: int = 4000) -> None:
         if not isinstance(max_memories, int) or max_memories < 1:
@@ -403,6 +409,7 @@ class SensitivityDenyPolicy(AdmissionPolicy):
         return AdmissionDecision.ALLOW, None
 
 
+@trace_class("admission")
 class ContextAdmissionLayer:
     """
     Admission layer that applies filters and policies to RankedCandidates.
@@ -410,7 +417,7 @@ class ContextAdmissionLayer:
     def __init__(self, policies: List[AdmissionPolicy]) -> None:
         self.policies = policies
 
-    def admit(self, candidates: List[RankedCandidate]) -> List[RankedCandidate]:
+    def admit(self, candidates: List[RankedCandidate], trace_id: Optional[str] = None) -> List[RankedCandidate]:
         admitted = []
         any_downranked = False
 
@@ -457,6 +464,7 @@ class ContextAdmissionLayer:
         return admitted
 
 
+@trace_class("retrieval")
 class RetrievalCoordinator:
     def __init__(
         self,
@@ -523,6 +531,7 @@ class RetrievalCoordinator:
             user_id=user_id,
             query_text=query_text,
             query_embedding=query_embedding,
+            trace_id=trace_id,
         )
         retrieve_latency = (time.perf_counter() - start_retrieve) * 1000.0
 
@@ -534,7 +543,7 @@ class RetrievalCoordinator:
 
         # Execute Context Admission Layer if configured
         if self._admission_layer is not None:
-            ranked_candidates = self._admission_layer.admit(ranked_candidates)
+            ranked_candidates = self._admission_layer.admit(ranked_candidates, trace_id=trace_id)
 
         # Measure compose latency
         start_compose = time.perf_counter()

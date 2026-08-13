@@ -29,6 +29,9 @@ class AuditService(ABC):
         """
         pass
 
+from ..services.observability import trace_class
+
+@trace_class("audit")
 class InMemoryAuditService(AuditService):
     def __init__(self) -> None:
         self._events: dict[UUID, AuditEvent] = {}

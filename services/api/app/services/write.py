@@ -8,6 +8,7 @@ from ..repositories.base import MemoryRepository
 from ..repositories.transactions import TransactionManager
 from ..policy.broker import PolicyBroker
 from .audit import AuditService
+from ..services.observability import trace_class
 
 
 class WriteResult(BaseModel):
@@ -32,6 +33,7 @@ class UnsupportedDecisionError(WriteServiceError):
     pass
 
 
+@trace_class("write")
 class WriteService:
     def __init__(
         self,
@@ -56,7 +58,7 @@ class WriteService:
     async def process(self, candidate: CandidateMemory, trace_id: Optional[str] = None) -> WriteResult:
         async with self.transaction_manager.transaction():
             # 1. Evaluate candidate using the Policy Broker
-            policy_result = await self.broker.evaluate(candidate)
+            policy_result = await self.broker.evaluate(candidate, trace_id=trace_id)
             
             # 2. Branch explicitly on each PolicyDecision enum member
             if policy_result.decision == PolicyDecision.SAVE:
@@ -76,9 +78,10 @@ class WriteService:
                     initial_policy_decision=PolicyDecision.SAVE,
                     initial_policy_reason=policy_result.reason,
                     identity_slot=candidate.identity_slot,
-                    embedding=None
+                    embedding=None,
+                    trace_id=trace_id
                 )
-                created = await self.repository.create(record)
+                created = await self.repository.create(record, trace_id=trace_id)
                 
                 # Emit audit log
                 audit_event = AuditEvent(
@@ -115,9 +118,10 @@ class WriteService:
                     initial_policy_decision=PolicyDecision.PENDING_APPROVAL,
                     initial_policy_reason=policy_result.reason,
                     identity_slot=candidate.identity_slot,
-                    embedding=None
+                    embedding=None,
+                    trace_id=trace_id
                 )
-                created = await self.repository.create(record)
+                created = await self.repository.create(record, trace_id=trace_id)
                 
                 # Emit audit log
                 audit_event = AuditEvent(
@@ -210,9 +214,10 @@ class WriteService:
                 updated.source_conversation_id = candidate.source_conversation_id
                 updated.source_excerpt = candidate.source_excerpt
                 updated.embedding = None  # Clear derived embedding atomically (ADR-006)
+                updated.trace_id = trace_id
                 
                 # Persist update
-                updated_record = await self.repository.update(updated)
+                updated_record = await self.repository.update(updated, trace_id=trace_id)
                 
                 # Emit audit event listing only mutated field names
                 changed_fields = [

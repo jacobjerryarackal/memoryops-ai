@@ -8,9 +8,11 @@ from fastapi.responses import JSONResponse
 from app.repositories.postgres import scoped_connection, db_bypass_rls, rls_bypass
 from app.repositories.postgres_connection import db_manager
 
+from .observability import trace_class
+
 logger = logging.getLogger("app.services.idempotency")
 
-
+@trace_class("idempotency")
 class IdempotencyService:
     def __init__(self) -> None:
         # In-memory fallback cache: mem_key -> {"status": status_code, "body": body, "hash": request_hash, "in_progress": bool}
