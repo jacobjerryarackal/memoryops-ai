@@ -676,3 +676,54 @@ def test_postgres_limit_validation():
         with pytest.raises(ValueError, match="Limit must be a positive integer"):
             await service.list_events("tenant_a", limit=-5)
     asyncio.run(run())
+
+
+def test_postgres_real_concurrent_updates():
+    async def run():
+        await setup_db()
+        repo = PostgreSQLMemoryRepository()
+        tenant = "tenant_a"
+        user = "user_a"
+        mid = uuid4()
+
+        # Seed initial memory
+        record = MemoryRecord(
+            id=mid,
+            tenant_id=tenant,
+            user_id=user,
+            content="Initial Content",
+            memory_type=MemoryType.SEMANTIC,
+            initial_policy_decision=PolicyDecision.SAVE,
+            initial_policy_reason="Seed for concurrent update test"
+        )
+        seeded = await repo.create(record)
+        assert seeded.version == 1
+
+        # Retrieve the same version (1) for both tasks
+        task1_record = await repo.get_by_id(mid, tenant, user)
+        task2_record = await repo.get_by_id(mid, tenant, user)
+
+        assert task1_record.version == 1
+        assert task2_record.version == 1
+
+        task1_record.content = "Update from Task A"
+        task2_record.content = "Update from Task B"
+
+        # Execute concurrent updates using asyncio.gather
+        results = await asyncio.gather(
+            repo.update(task1_record),
+            repo.update(task2_record),
+            return_exceptions=True
+        )
+
+        successes = [r for r in results if isinstance(r, MemoryRecord)]
+        failures = [r for r in results if isinstance(r, ValueError) and "Concurrency conflict" in str(r)]
+
+        assert len(successes) == 1
+        assert len(failures) == 1
+        
+        updated_db = await repo.get_by_id(mid, tenant, user)
+        assert updated_db.version == 2
+        assert updated_db.content in ("Update from Task A", "Update from Task B")
+
+    asyncio.run(run())
