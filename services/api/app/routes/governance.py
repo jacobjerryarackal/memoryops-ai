@@ -63,16 +63,26 @@ async def list_memories(
     user_id: str = Query(..., min_length=1),
     status: Optional[MemoryStatus] = None,
     memory_type: Optional[MemoryType] = None,
+    limit: Optional[int] = Query(None, ge=1),
+    offset: Optional[int] = Query(None, ge=0),
     service: GovernanceService = Depends(get_governance_service),
     identity: Identity = Depends(ScopeChecker("memory:read")),
+    x_trace_id: Optional[str] = Header(None, alias="X-Trace-ID"),
 ):
     if tenant_id != identity.tenant_id or user_id != identity.user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Tenant or User scope mismatch."
         )
+    trace_id = x_trace_id or f"trace-{uuid.uuid4()}"
     records = await service.list_memories(
-        tenant_id=tenant_id, user_id=user_id, status=status, memory_type=memory_type
+        tenant_id=tenant_id,
+        user_id=user_id,
+        status=status,
+        memory_type=memory_type,
+        limit=limit,
+        offset=offset,
+        trace_id=trace_id,
     )
     return records
 
@@ -84,16 +94,17 @@ async def get_memory(
     user_id: str = Query(..., min_length=1),
     service: GovernanceService = Depends(get_governance_service),
     identity: Identity = Depends(ScopeChecker("memory:read")),
+    x_trace_id: Optional[str] = Header(None, alias="X-Trace-ID"),
 ):
     if tenant_id != identity.tenant_id or user_id != identity.user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Tenant or User scope mismatch."
         )
-    trace_id = f"trace-{uuid.uuid4()}"
+    trace_id = x_trace_id or f"trace-{uuid.uuid4()}"
     try:
         record = await service.get_memory_by_id(
-            memory_id=memory_id, tenant_id=tenant_id, user_id=user_id
+            memory_id=memory_id, tenant_id=tenant_id, user_id=user_id, trace_id=trace_id
         )
         return record
     except GovernanceTargetUnavailableError as e:
@@ -110,16 +121,17 @@ async def get_provenance(
     user_id: str = Query(..., min_length=1),
     service: GovernanceService = Depends(get_governance_service),
     identity: Identity = Depends(ScopeChecker("memory:read")),
+    x_trace_id: Optional[str] = Header(None, alias="X-Trace-ID"),
 ):
     if tenant_id != identity.tenant_id or user_id != identity.user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Tenant or User scope mismatch."
         )
-    trace_id = f"trace-{uuid.uuid4()}"
+    trace_id = x_trace_id or f"trace-{uuid.uuid4()}"
     try:
         prov = await service.get_memory_provenance(
-            memory_id=memory_id, tenant_id=tenant_id, user_id=user_id
+            memory_id=memory_id, tenant_id=tenant_id, user_id=user_id, trace_id=trace_id
         )
         return prov
     except GovernanceTargetUnavailableError as e:
@@ -152,16 +164,17 @@ async def get_evidence(
     user_id: str = Query(..., min_length=1),
     service: GovernanceService = Depends(get_governance_service),
     identity: Identity = Depends(ScopeChecker("audit:read")),
+    x_trace_id: Optional[str] = Header(None, alias="X-Trace-ID"),
 ):
     if tenant_id != identity.tenant_id or user_id != identity.user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Tenant or User scope mismatch."
         )
-    trace_id = f"trace-{uuid.uuid4()}"
+    trace_id = x_trace_id or f"trace-{uuid.uuid4()}"
     try:
         evidence = await service.get_memory_evidence(
-            memory_id=memory_id, tenant_id=tenant_id, user_id=user_id
+            memory_id=memory_id, tenant_id=tenant_id, user_id=user_id, trace_id=trace_id
         )
         return evidence
     except GovernanceTargetUnavailableError as e:
@@ -179,16 +192,17 @@ async def get_audit(
     limit: Optional[int] = Query(None, ge=1),
     service: GovernanceService = Depends(get_governance_service),
     identity: Identity = Depends(ScopeChecker("audit:read")),
+    x_trace_id: Optional[str] = Header(None, alias="X-Trace-ID"),
 ):
     if tenant_id != identity.tenant_id or user_id != identity.user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Tenant or User scope mismatch."
         )
-    trace_id = f"trace-{uuid.uuid4()}"
+    trace_id = x_trace_id or f"trace-{uuid.uuid4()}"
     try:
         events = await service.get_memory_audit(
-            memory_id=memory_id, tenant_id=tenant_id, user_id=user_id, limit=limit
+            memory_id=memory_id, tenant_id=tenant_id, user_id=user_id, limit=limit, trace_id=trace_id
         )
         return events
     except GovernanceTargetUnavailableError as e:
@@ -205,6 +219,7 @@ async def patch_memory(
     service: GovernanceService = Depends(get_governance_service),
     x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
     identity: Identity = Depends(ScopeChecker("memory:write")),
+    x_trace_id: Optional[str] = Header(None, alias="X-Trace-ID"),
 ):
     if request.tenant_id != identity.tenant_id or request.user_id != identity.user_id:
         raise HTTPException(
@@ -221,7 +236,7 @@ async def patch_memory(
             status_code, body = cached
             return JSONResponse(status_code=status_code, content=body)
 
-    trace_id = f"trace-{uuid.uuid4()}"
+    trace_id = x_trace_id or f"trace-{uuid.uuid4()}"
     try:
         updated = await service.patch_memory(
             memory_id=memory_id,
@@ -288,6 +303,7 @@ async def delete_memory(
     service: GovernanceService = Depends(get_governance_service),
     x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
     identity: Identity = Depends(ScopeChecker("governance:admin")),
+    x_trace_id: Optional[str] = Header(None, alias="X-Trace-ID"),
 ):
     if request.tenant_id != identity.tenant_id or request.user_id != identity.user_id:
         raise HTTPException(
@@ -304,7 +320,7 @@ async def delete_memory(
             status_code, body = cached
             return JSONResponse(status_code=status_code, content=body)
 
-    trace_id = f"trace-{uuid.uuid4()}"
+    trace_id = x_trace_id or f"trace-{uuid.uuid4()}"
     try:
         deleted = await service.delete_memory(
             memory_id=memory_id,
@@ -350,17 +366,20 @@ async def list_audit(
     limit: Optional[int] = Query(None, ge=1),
     service: GovernanceService = Depends(get_governance_service),
     identity: Identity = Depends(ScopeChecker("audit:read")),
+    x_trace_id: Optional[str] = Header(None, alias="X-Trace-ID"),
 ):
     if tenant_id != identity.tenant_id or (user_id and user_id != identity.user_id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Tenant or User scope mismatch."
         )
+    trace_id = x_trace_id or f"trace-{uuid.uuid4()}"
     events = await service.audit_service.list_events(
         tenant_id=tenant_id,
         user_id=user_id,
         memory_id=memory_id,
         limit=limit,
+        trace_id=trace_id,
     )
     return events
 
@@ -370,11 +389,13 @@ async def get_metrics(
     tenant_id: str = Query(..., min_length=1),
     service: GovernanceService = Depends(get_governance_service),
     identity: Identity = Depends(ScopeChecker("governance:admin")),
+    x_trace_id: Optional[str] = Header(None, alias="X-Trace-ID"),
 ):
     if tenant_id != identity.tenant_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Tenant scope mismatch."
         )
-    metrics = await service.get_metrics(tenant_id=tenant_id)
+    trace_id = x_trace_id or f"trace-{uuid.uuid4()}"
+    metrics = await service.get_metrics(tenant_id=tenant_id, trace_id=trace_id)
     return metrics

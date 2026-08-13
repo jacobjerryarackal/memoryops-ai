@@ -142,6 +142,7 @@ async def chat(
     request: ChatRequest,
     coordinator: RetrievalCoordinator = Depends(get_retrieval_coordinator),
     x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
+    x_trace_id: Optional[str] = Header(None, alias="X-Trace-ID"),
     identity: Identity = Depends(ScopeChecker("memory:write")),
 ):
     if request.tenant_id != identity.tenant_id or request.user_id != identity.user_id:
@@ -160,7 +161,7 @@ async def chat(
             return JSONResponse(status_code=status_code, content=body)
 
     # Dynamic per-request UUID string for trace_id boundary placeholder
-    trace_id = f"trace-{uuid.uuid4()}"
+    trace_id = x_trace_id or f"trace-{uuid.uuid4()}"
     logger.info(f"[{trace_id}] Entered chat route. Message: '{request.message}', Tenant: '{request.tenant_id}', User: '{request.user_id}'")
 
     try:
