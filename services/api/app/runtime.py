@@ -75,10 +75,29 @@ def get_retrieval_coordinator() -> RetrievalCoordinator:
     retriever = Retriever(_shared_repository)
     ranker = Ranker()
     context_composer = ContextComposer()
+
+    # Enable Context Admission Layer in production
+    from .services.retrieval import (
+        ContextAdmissionLayer, PIIRedactionPolicy, LengthTruncationPolicy,
+        ImportanceDownrankPolicy, KeywordDenyPolicy, ConfidenceDenyPolicy,
+        ConfidenceDownrankPolicy, SensitivityDenyPolicy
+    )
+    admission_policies = [
+        PIIRedactionPolicy(),
+        LengthTruncationPolicy(max_length=1000),
+        ImportanceDownrankPolicy(threshold=3, penalty=0.5),
+        KeywordDenyPolicy(forbidden_keywords=["nuclear", "weapon", "hazardous"]),
+        ConfidenceDenyPolicy(threshold=0.3),
+        ConfidenceDownrankPolicy(threshold=0.5, penalty=0.3),
+        SensitivityDenyPolicy()
+    ]
+    admission_layer = ContextAdmissionLayer(admission_policies)
+
     return RetrievalCoordinator(
         embedding_service=embedding_service,
         retriever=retriever,
         ranker=ranker,
         context_composer=context_composer,
         telemetry=_shared_telemetry,
+        admission_layer=admission_layer,
     )
