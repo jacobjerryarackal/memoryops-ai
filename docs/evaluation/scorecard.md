@@ -1,12 +1,12 @@
 # MemoryOps AI — Quality Evaluation Scorecard
 
-**Run Timestamp:** 2026-08-12 07:44:19 UTC
+**Run Timestamp:** 2026-08-13 07:14:39 UTC
 **Overall Status:** `PASSED`
 
 ## Golden Dataset Test Run Summary
 
-- **Total Cases:** 20
-- **Passed Cases:** 20
+- **Total Cases:** 28
+- **Passed Cases:** 28
 - **Failed Cases:** 0
 - **Golden Test Case Pass Rate:** 100.00%
 
