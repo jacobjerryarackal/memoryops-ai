@@ -8,6 +8,9 @@ from app.repositories.base import MemoryRepository
 from app.services.audit import AuditService
 
 
+from app.services.observability import trace_class
+
+@trace_class("repository")
 class DummyMemoryRepository(MemoryRepository):
     def __init__(self):
         self.db = {}

@@ -12,6 +12,9 @@ from app.services.retrieval import (
 from app.repositories.base import MemoryRepository
 
 
+from app.services.observability import trace_class
+
+@trace_class("repository")
 class DummyMemoryRepository(MemoryRepository):
     def __init__(self, records):
         self.records = records
