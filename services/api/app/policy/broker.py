@@ -4,7 +4,9 @@ from ..domain.models import CandidateMemory, PolicyResult
 from ..domain.enums import PolicyDecision, Sensitivity
 from ..repositories.base import MemoryRepository
 from .registry import StaticSlotRegistry, SlotCardinality
+from ..services.observability import trace_class
 
+@trace_class("policy")
 class PolicyBroker:
     def __init__(
         self,
@@ -25,7 +27,7 @@ class PolicyBroker:
             )
         ]
 
-    async def evaluate(self, candidate: CandidateMemory) -> PolicyResult:
+    async def evaluate(self, candidate: CandidateMemory, trace_id: Optional[str] = None) -> PolicyResult:
         # 1. Secret and credential detection (BLOCK)
         # Checked first because safety rules have the highest precedence.
         for pattern in self._secret_patterns:
@@ -71,6 +73,7 @@ class PolicyBroker:
             user_id=candidate.user_id,
             memory_type=candidate.memory_type,
             identity_slot=candidate.identity_slot,
+            trace_id=trace_id,
         )
 
         # 6a. SINGLE with zero active occupants (vacant slot)
