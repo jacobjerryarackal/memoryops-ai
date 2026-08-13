@@ -1,9 +1,11 @@
 import os
 import logging
+import jwt
 from typing import List, Optional, Set
 from pydantic import BaseModel, Field
 from fastapi import Request, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from ..config import settings
 
 logger = logging.getLogger("app.services.auth")
 
@@ -74,8 +76,61 @@ class SimpleAuthorizationService(AuthorizationService):
         return required_scope in identity.scopes
 
 
+class JWTAuthenticationService(AuthenticationService):
+    """
+    Production-grade JWT token validator.
+    Verifies signature, expiration, issuer, audience, and restricts algorithms.
+    """
+    def __init__(self) -> None:
+        self.secret = settings.jwt_secret
+        self.algorithms = settings.jwt_algorithms
+        self.issuer = settings.jwt_issuer
+        self.audience = settings.jwt_audience
+
+    async def authenticate(self, credentials: str) -> Optional[Identity]:
+        try:
+            # Decode and verify the token using PyJWT
+            payload = jwt.decode(
+                credentials,
+                self.secret,
+                algorithms=self.algorithms,
+                audience=self.audience,
+                issuer=self.issuer,
+                options={
+                    "require": ["exp", "iss", "aud", "tenant_id", "user_id"],
+                    "verify_signature": True,
+                }
+            )
+            
+            tenant_id = payload.get("tenant_id")
+            user_id = payload.get("user_id")
+            scopes = set(payload.get("scopes", []))
+            is_admin = bool(payload.get("is_admin", False))
+            
+            # Map standard claims/roles if roles are provided
+            roles = payload.get("roles", [])
+            if "admin" in roles or is_admin:
+                is_admin = True
+                scopes.update({"governance:admin", "audit:read"})
+            
+            # Ensure base scopes are populated
+            if not is_admin:
+                scopes.update({"memory:read", "memory:write"})
+                
+            return Identity(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                scopes=scopes,
+                is_admin=is_admin
+            )
+        except jwt.PyJWTError as e:
+            logger.warning(f"JWT authentication failed: {e}")
+            return None
+
+
 # Global references
-auth_service = MockBearerAuthService()
+mock_auth_service = MockBearerAuthService()
+jwt_auth_service = JWTAuthenticationService()
 az_service = SimpleAuthorizationService()
 security_scheme = HTTPBearer(auto_error=False)
 
@@ -88,39 +143,49 @@ async def get_current_identity(
     FastAPI dependency to resolve the caller's identity.
     Enforces authentication check with a fallback bypass for local tests and development.
     """
+    env = os.environ.get("ENVIRONMENT", "development").strip().lower()
+    is_testing = "PYTEST_CURRENT_TEST" in os.environ or env in ("development", "testing")
+
     # 1. Attempt token-based authentication
     if credentials is not None:
-        identity = await auth_service.authenticate(credentials.credentials)
+        token_str = credentials.credentials
+        
+        # Check for mock token fallback (only in dev/testing environments or test runs)
+        if token_str.startswith("token-") and is_testing:
+            identity = await mock_auth_service.authenticate(token_str)
+        else:
+            identity = await jwt_auth_service.authenticate(token_str)
+            
         if identity is not None:
             return identity
+            
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired bearer token.",
+            detail="Invalid, expired, or structural error in bearer token.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # 2. Check for local dev/testing auth bypass
-    env = os.environ.get("ENVIRONMENT", "development").strip().lower()
+    # 2. Check for local dev/testing auth bypass (only when NOT in production)
     if env in ("development", "testing"):
         # Resolve tenant_id and user_id from query parameters or JSON body
         tenant_id = request.query_params.get("tenant_id")
         user_id = request.query_params.get("user_id")
 
         # Fallback to check JSON body if present and appropriate
-        if not tenant_id or not user_id:
+        if not tenant_id:
             try:
                 body = await request.json()
                 if isinstance(body, dict):
-                    tenant_id = tenant_id or body.get("tenant_id")
+                    tenant_id = body.get("tenant_id")
                     user_id = user_id or body.get("user_id")
             except Exception:
                 pass
 
-        if tenant_id and user_id:
+        if tenant_id:
             # Grant all scopes in bypass mode to prevent breaking existing tests
             return Identity(
                 tenant_id=tenant_id,
-                user_id=user_id,
+                user_id=user_id or "system",
                 scopes={"memory:read", "memory:write", "governance:admin", "audit:read"},
                 is_admin=True
             )

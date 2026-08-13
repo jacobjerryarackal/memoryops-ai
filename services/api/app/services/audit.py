@@ -39,6 +39,9 @@ class InMemoryAuditService(AuditService):
             if event.id in self._events:
                 raise ValueError(f"Duplicate audit event ID: {event.id} already exists.")
             
+            from ..repositories.transactions import log_in_memory_write
+            log_in_memory_write("events", event.id, None)
+
             copied = event.model_copy(deep=True)
             self._events[event.id] = copied
             return copied.model_copy(deep=True)
