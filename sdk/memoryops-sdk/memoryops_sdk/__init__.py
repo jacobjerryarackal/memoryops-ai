@@ -1,3 +1,23 @@
-from .client import MemoryOpsClient, MemoryOpsClientError
+from .client import (
+    MemoryOpsClient,
+    MemoryOpsClientError,
+    MemoryOpsError,
+    AuthenticationError,
+    AuthorizationError,
+    ConflictError,
+    NotFoundError,
+    PolicyDeniedError,
+    ValidationError,
+)
 
-__all__ = ["MemoryOpsClient", "MemoryOpsClientError"]
+__all__ = [
+    "MemoryOpsClient",
+    "MemoryOpsClientError",
+    "MemoryOpsError",
+    "AuthenticationError",
+    "AuthorizationError",
+    "ConflictError",
+    "NotFoundError",
+    "PolicyDeniedError",
+    "ValidationError",
+]
