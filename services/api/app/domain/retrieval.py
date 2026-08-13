@@ -35,6 +35,12 @@ class ScoreBreakdown(BaseModel):
     recency_score: float = Field(..., ge=0.0, le=1.0, description="Normalized memory recency score")
     confidence_score: float = Field(..., ge=0.0, le=1.0, description="Normalized memory extraction confidence score")
     reinforcement_score: float = Field(..., ge=0.0, le=1.0, description="Normalized memory reinforcement score")
+    
+    # New explainability fields with default values for backward compatibility
+    lexical_score: float = Field(default=0.0, ge=0.0, le=1.0, description="Normalized lexical overlap score")
+    policy_score: float = Field(default=1.0, ge=0.0, le=1.0, description="Normalized policy compliance score")
+    final_score: float = Field(default=0.0, ge=0.0, le=1.0, description="Calculated final weighted ranking score")
+    rank: int = Field(default=1, ge=1, description="Assigned ordinal rank of the candidate")
 
     @model_validator(mode="after")
     def validate_finiteness(self) -> "ScoreBreakdown":
@@ -44,7 +50,10 @@ class ScoreBreakdown(BaseModel):
             "importance_score",
             "recency_score",
             "confidence_score",
-            "reinforcement_score"
+            "reinforcement_score",
+            "lexical_score",
+            "policy_score",
+            "final_score"
         ]:
             val = getattr(self, field_name)
             if not math.isfinite(val):
@@ -79,6 +88,7 @@ class UsedMemory(BaseModel):
     reason: str = Field(..., min_length=1, description="Dynamic context selection explanation")
     score_breakdown: ScoreBreakdown = Field(..., description="Detailed normalized score breakdown")
     source: UsedMemorySource = Field(..., description="Source origin information")
+    ranking_explanation: Optional[dict] = Field(None, description="Direct ranking explainability metrics")
 
     @field_validator("score")
     @classmethod
