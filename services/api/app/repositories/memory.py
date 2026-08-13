@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 from ..domain.models import MemoryRecord, LifecycleRunHistory
 from ..domain.enums import MemoryStatus, MemoryType, LifecycleJobStatus
 from .base import MemoryRepository, LifecycleRepository
-from ..services.observability import trace_class
+from ..telemetry import trace_class
 
 
 @trace_class("repository")

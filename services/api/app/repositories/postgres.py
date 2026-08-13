@@ -80,7 +80,7 @@ async def run_in_temp_conn(coro_func) -> Any:
 
 
 
-from ..services.observability import obs, trace_method, trace_class
+from ..telemetry import trace_class, trace_method
 import time
 
 
@@ -92,6 +92,7 @@ class ObsConnectionProxy:
         attr = getattr(self._conn, name)
         if callable(attr) and name in ("execute", "fetch", "fetchrow", "fetchval"):
             async def wrapped(*args, **kwargs):
+                from ..services.observability import obs
                 query = args[0] if args else "UNKNOWN"
                 sql_prefix = " ".join(query.strip().split()[:3]).upper()
                 start = time.perf_counter()
@@ -655,6 +656,7 @@ class PostgreSQLMemoryRepository(MemoryRepository):
 
 
 
+@trace_class("audit")
 class PostgreSQLAuditRepository(AuditService):
     def __init__(self) -> None:
         self._events = PostgresDictProxy("memory_audit_logs")
