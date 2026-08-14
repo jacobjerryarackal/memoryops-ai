@@ -1,8 +1,8 @@
 # MemoryOps AI — Retrieval & Evaluation Report
 
-**Run Timestamp:** 2026-08-13 07:14:39 UTC
+**Run Timestamp:** 2026-08-14 06:55:21 UTC
 **Overall Status:** `PASSED`
-**Overall Pass Rate:** 100.00% (302/302 cases)
+**Overall Pass Rate:** 100.00% (310/310 cases)
 
 ## Categorized Evaluation Report
 
@@ -11,10 +11,10 @@
 | admission | 18 | 18 | 0 | 100.00% |
 | concurrency | 28 | 28 | 0 | 100.00% |
 | deletion | 1 | 1 | 0 | 100.00% |
-| end-to-end | 22 | 22 | 0 | 100.00% |
-| governance | 42 | 42 | 0 | 100.00% |
+| end-to-end | 23 | 23 | 0 | 100.00% |
+| governance | 43 | 43 | 0 | 100.00% |
 | lifecycle | 10 | 10 | 0 | 100.00% |
-| retrieval | 168 | 168 | 0 | 100.00% |
+| retrieval | 174 | 174 | 0 | 100.00% |
 | security | 13 | 13 | 0 | 100.00% |
 
 ## Critical Failures Details
