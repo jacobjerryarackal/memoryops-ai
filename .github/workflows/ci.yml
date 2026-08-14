@@ -39,7 +39,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio black flake8 mypy types-requests types-PyYAML
+          pip install -r requirements-dev.txt
 
       - name: Format Check (Black)
         run: |
@@ -49,12 +49,16 @@ jobs:
         run: |
           # stop the build if there are Python syntax errors or undefined names
           flake8 services/api tests --count --select=E9,F63,F7,F82 --show-source --statistics
-          # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
-          flake8 services/api tests --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+          # stop the build on any lint failures
+          flake8 services/api tests --count --max-complexity=10 --max-line-length=127 --statistics
 
       - name: Type Check (Mypy)
         run: |
           mypy services/api tests --ignore-missing-imports
+
+      - name: Security Check (Bandit)
+        run: |
+          bandit -r services/api sdk/memoryops-sdk/memoryops_sdk
 
       - name: Setup Test Database Schema
         env:
@@ -85,6 +89,18 @@ jobs:
           PYTHONPATH: .
         run: |
           pytest
+
+      - name: Run Golden Dataset & Regression Evaluation
+        env:
+          DATABASE_TYPE: postgres
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DB: memoryops_ai
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          PYTHONPATH: .
+        run: |
+          python evals/runner.py
 
       - name: Validate Docker Image Build
         run: |
