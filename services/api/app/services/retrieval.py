@@ -1,4 +1,5 @@
 import math
+import inspect
 import unicodedata
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
@@ -57,13 +58,17 @@ class Retriever:
         trace_id: Optional[str] = None,
     ) -> List[RetrievalCandidate]:
         # Delegate to repository to get scoped active candidate records
-        repo_results = await self.repository.search_candidates(
-            tenant_id=tenant_id,
-            user_id=user_id,
-            query_embedding=query_embedding,
-            limit=candidate_limit,
-            trace_id=trace_id,
-        )
+        repo_sig = inspect.signature(self.repository.search_candidates)
+        repo_kwargs = {
+            "tenant_id": tenant_id,
+            "user_id": user_id,
+            "query_embedding": query_embedding,
+            "limit": candidate_limit,
+        }
+        if "trace_id" in repo_sig.parameters:
+            repo_kwargs["trace_id"] = trace_id
+
+        repo_results = await self.repository.search_candidates(**repo_kwargs)
 
         if not repo_results:
             return []
@@ -526,13 +531,17 @@ class RetrievalCoordinator:
 
         # Measure retrieve latency
         start_retrieve = time.perf_counter()
-        candidates = await self._retriever.retrieve(
-            tenant_id=tenant_id,
-            user_id=user_id,
-            query_text=query_text,
-            query_embedding=query_embedding,
-            trace_id=trace_id,
-        )
+        retriever_sig = inspect.signature(self._retriever.retrieve)
+        retriever_kwargs = {
+            "tenant_id": tenant_id,
+            "user_id": user_id,
+            "query_text": query_text,
+            "query_embedding": query_embedding,
+        }
+        if "trace_id" in retriever_sig.parameters:
+            retriever_kwargs["trace_id"] = trace_id
+
+        candidates = await self._retriever.retrieve(**retriever_kwargs)
         retrieve_latency = (time.perf_counter() - start_retrieve) * 1000.0
 
         # Measure rank latency

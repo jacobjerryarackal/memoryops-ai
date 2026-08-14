@@ -214,7 +214,6 @@ class WriteService:
                 updated.source_conversation_id = candidate.source_conversation_id
                 updated.source_excerpt = candidate.source_excerpt
                 updated.embedding = None  # Clear derived embedding atomically (ADR-006)
-                updated.trace_id = trace_id
                 
                 # Persist update
                 updated_record = await self.repository.update(updated, trace_id=trace_id)

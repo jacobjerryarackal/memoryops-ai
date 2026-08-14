@@ -5,6 +5,7 @@ import sys
 import logging
 import asyncio
 import functools
+import inspect
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List, Callable
@@ -133,7 +134,12 @@ def trace_method(category: str) -> Callable:
                 if user_id:
                     tags["user_id"] = user_id
 
-                trace_id = kwargs.pop("trace_id", None)
+                trace_id = kwargs.get("trace_id", None)
+                sig = inspect.signature(func)
+                if "trace_id" not in sig.parameters:
+                    kwargs.pop("trace_id", None)
+                else:
+                    kwargs["trace_id"] = trace_id
                 with obs.span(span_name, trace_id=trace_id, tags=tags):
                     return await func(*args, **kwargs)
             return async_wrapper
@@ -160,7 +166,12 @@ def trace_method(category: str) -> Callable:
                 if user_id:
                     tags["user_id"] = user_id
 
-                trace_id = kwargs.pop("trace_id", None)
+                trace_id = kwargs.get("trace_id", None)
+                sig = inspect.signature(func)
+                if "trace_id" not in sig.parameters:
+                    kwargs.pop("trace_id", None)
+                else:
+                    kwargs["trace_id"] = trace_id
                 with obs.span(span_name, trace_id=trace_id, tags=tags):
                     return func(*args, **kwargs)
             return sync_wrapper

@@ -135,6 +135,7 @@ async def get_connection() -> AsyncIterator[asyncpg.Connection]:
         pool = db_manager.pool
         if pool is not None:
             try:
+                from ..services.observability import obs
                 total = pool.get_size()
                 idle = pool.get_idle_size()
                 obs.record_metric("connection_pool_total", total)
