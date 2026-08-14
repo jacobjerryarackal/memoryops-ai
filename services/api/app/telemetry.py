@@ -20,29 +20,42 @@ def trace_method(category: str, name: str):
                 from .services.observability import obs
                 
                 # Check for explicit trace_id in kwargs
-                trace_id = kwargs.pop("trace_id", None)
+                trace_id = kwargs.get("trace_id", None)
                 if not trace_id:
                     # Fall back to active context trace_id or generate a new one
                     trace_id = active_trace_id.get() or f"trace-{uuid.uuid4()}"
                 
+                sig = inspect.signature(func)
+                if "trace_id" not in sig.parameters:
+                    kwargs.pop("trace_id", None)
+                else:
+                    kwargs["trace_id"] = trace_id
+                
                 # Set active trace_id context for downstream calls
                 token = active_trace_id.set(trace_id)
                 
-                # Extract tenant and user if available in first argument or kwargs
-                tenant_id = kwargs.get("tenant_id")
-                user_id = kwargs.get("user_id")
-                if not tenant_id and args:
-                    # Try to extract from object properties or models
-                    obj = args[0]
-                    if hasattr(obj, "tenant_id"):
-                        tenant_id = getattr(obj, "tenant_id")
-                    if hasattr(obj, "user_id"):
-                        user_id = getattr(obj, "user_id")
+                # Extract tenant and user dynamically using inspect.signature
+                tenant_id = None
+                user_id = None
+                try:
+                    bound = inspect.signature(func).bind(*args, **kwargs)
+                    bound.apply_defaults()
+                    tenant_id = bound.arguments.get("tenant_id")
+                    user_id = bound.arguments.get("user_id")
+                    
+                    if not tenant_id or not user_id:
+                        for val in bound.arguments.values():
+                            if not tenant_id and hasattr(val, "tenant_id"):
+                                tenant_id = getattr(val, "tenant_id")
+                            if not user_id and hasattr(val, "user_id"):
+                                user_id = getattr(val, "user_id")
+                except Exception:
+                    pass
                 
                 tags = {"category": category}
-                if tenant_id:
+                if tenant_id and isinstance(tenant_id, str):
                     tags["tenant_id"] = tenant_id
-                if user_id:
+                if user_id and isinstance(user_id, str):
                     tags["user_id"] = user_id
                 
                 obs.emit_event("span_start", {
@@ -78,25 +91,40 @@ def trace_method(category: str, name: str):
             def sync_wrapper(*args, **kwargs):
                 from .services.observability import obs
                 
-                trace_id = kwargs.pop("trace_id", None)
+                trace_id = kwargs.get("trace_id", None)
                 if not trace_id:
                     trace_id = active_trace_id.get() or f"trace-{uuid.uuid4()}"
                 
+                sig = inspect.signature(func)
+                if "trace_id" not in sig.parameters:
+                    kwargs.pop("trace_id", None)
+                else:
+                    kwargs["trace_id"] = trace_id
+                
                 token = active_trace_id.set(trace_id)
                 
-                tenant_id = kwargs.get("tenant_id")
-                user_id = kwargs.get("user_id")
-                if not tenant_id and args:
-                    obj = args[0]
-                    if hasattr(obj, "tenant_id"):
-                        tenant_id = getattr(obj, "tenant_id")
-                    if hasattr(obj, "user_id"):
-                        user_id = getattr(obj, "user_id")
+                # Extract tenant and user dynamically using inspect.signature
+                tenant_id = None
+                user_id = None
+                try:
+                    bound = inspect.signature(func).bind(*args, **kwargs)
+                    bound.apply_defaults()
+                    tenant_id = bound.arguments.get("tenant_id")
+                    user_id = bound.arguments.get("user_id")
+                    
+                    if not tenant_id or not user_id:
+                        for val in bound.arguments.values():
+                            if not tenant_id and hasattr(val, "tenant_id"):
+                                tenant_id = getattr(val, "tenant_id")
+                            if not user_id and hasattr(val, "user_id"):
+                                user_id = getattr(val, "user_id")
+                except Exception:
+                    pass
                 
                 tags = {"category": category}
-                if tenant_id:
+                if tenant_id and isinstance(tenant_id, str):
                     tags["tenant_id"] = tenant_id
-                if user_id:
+                if user_id and isinstance(user_id, str):
                     tags["user_id"] = user_id
                 
                 obs.emit_event("span_start", {

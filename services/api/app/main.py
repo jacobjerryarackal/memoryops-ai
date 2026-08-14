@@ -27,7 +27,7 @@ START_TIME = time.time()
 async def healthz():
     return {
         "status": "ok",
-        "version": "0.1.0",
+        "version": "0.4.0",
         "uptime_seconds": int(time.time() - START_TIME)
     }
 
