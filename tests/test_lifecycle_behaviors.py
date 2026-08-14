@@ -320,12 +320,16 @@ async def test_repeated_scheduler_execution():
     await clean_all()
     runner = get_lifecycle_runner()
     
+    db_type = os.environ.get("DATABASE_TYPE", "memory").strip().lower()
+    interval = 0.2 if db_type == "postgres" else 0.05
+    sleep_time = 2.5 if db_type == "postgres" else 0.3
+
     scheduler = WorkerScheduler(runner)
-    scheduler.schedule_job("compaction_worker", 0.05)
-    scheduler.schedule_job("decay_worker", 0.05)
+    scheduler.schedule_job("compaction_worker", interval)
+    scheduler.schedule_job("decay_worker", interval)
 
     await scheduler.start("tenant_a", "user_a")
-    await asyncio.sleep(0.3)
+    await asyncio.sleep(sleep_time)
     await scheduler.stop()
 
     history_repo = get_lifecycle_repository()

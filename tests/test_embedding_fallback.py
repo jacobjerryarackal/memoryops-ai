@@ -21,7 +21,8 @@ def test_api_key_present_semantic_retrieval(monkeypatch):
         return dummy_vector
     monkeypatch.setattr(OpenAIEmbeddingService, "generate_embedding", mock_generate_embedding)
 
-    # Set mock key in environment
+    # Set mock key and provider in environment
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-mock-env-key")
 
     payload = {
@@ -38,7 +39,8 @@ def test_api_key_present_semantic_retrieval(monkeypatch):
 
 
 def test_api_key_absent_fallback_retrieval(monkeypatch):
-    # Ensure OPENAI_API_KEY is not set
+    # Ensure provider is openai and OPENAI_API_KEY is not set
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "openai")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     payload = {
@@ -61,7 +63,8 @@ def test_provider_runtime_failure_fallback_retrieval(monkeypatch, caplog):
         raise RuntimeError("OpenAI API connection timed out.")
     monkeypatch.setattr(OpenAIEmbeddingService, "generate_embedding", mock_failed_generate_embedding)
 
-    # Set key in environment so initialization succeeds but runtime fails
+    # Set key and provider in environment so initialization succeeds but runtime fails
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-mock-env-key")
 
     payload = {
