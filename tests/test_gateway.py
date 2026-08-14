@@ -166,7 +166,8 @@ def test_gateway_chat_whitespace_preservation():
 
 
 def test_production_get_retrieval_coordinator_missing_key(monkeypatch):
-    # Ensure OPENAI_API_KEY is not in environment
+    # Ensure provider is openai and key is not in environment
+    monkeypatch.setenv("EMBEDDING_PROVIDER", "openai")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     # Requesting the production dependency should resolve successfully without throwing
