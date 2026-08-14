@@ -8,8 +8,8 @@
 
 MemoryOps AI is a production-grade, governed long-term memory operating system for Large Language Model (LLM) applications. Unlike simple vector databases or caching wrappers, MemoryOps AI treats memory as a governed persistent system state subject to safety policies, transaction integrity, structured lifecycles, and explainable retrieval.
 
-* **Current Status:** Production-Ready & Fully Tested
-* **Current Version:** `1.0.0`
+* **Current Status:** Phase 3 Complete (Governance Control Plane & Hardened Persistence)
+* **Current Version:** `0.4.0`
 * **License:** MIT
 
 ---
@@ -725,6 +725,7 @@ cd memoryops-ai
 python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+pip install -r requirements-dev.txt
 ```
 
 ### 3. Environment Setup
