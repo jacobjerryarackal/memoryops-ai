@@ -83,7 +83,7 @@ async def clean_all():
                     db_manager.pool = None
         await db_manager.initialize()
         async with db_manager.pool.acquire() as conn:
-            await conn.execute("TRUNCATE TABLE memories, memory_audit_logs, lifecycle_run_history CASCADE;")
+            await conn.execute("TRUNCATE TABLE memories, memory_audit_logs, lifecycle_run_history, idempotency_records CASCADE;")
     else:
         # In-memory repository cleanup
         repo._records.clear()
@@ -170,7 +170,7 @@ async def test_scheduled_execution():
     runner.register_worker(worker)
 
     scheduler = WorkerScheduler(runner)
-    scheduler.schedule_job("scheduled_job", 0.1)
+    scheduler.schedule_job("scheduled_job", 0.02)
 
     await scheduler.start("tenant_a", "user_a")
     # Wait for execution loop to trigger the scheduled job a few times

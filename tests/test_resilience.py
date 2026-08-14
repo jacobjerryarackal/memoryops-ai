@@ -20,6 +20,25 @@ from app.services.idempotency import IdempotencyService, idempotency_service
 client = TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+async def clean_database():
+    from app.repositories.postgres_connection import db_manager
+    # Ensure pool is initialized if we are using postgres
+    db_type = os.environ.get("DATABASE_TYPE", "memory").strip().lower()
+    if db_type == "postgres":
+        if db_manager.pool is None:
+            await db_manager.initialize()
+        if db_manager.pool is not None:
+            try:
+                async with db_manager.pool.acquire() as conn:
+                    await conn.execute("TRUNCATE TABLE memories, memory_audit_logs, lifecycle_run_history, idempotency_records CASCADE;")
+            except Exception:
+                pass
+    idempotency_service.clear()
+    yield
+
+
+
 # 1. Database Unavailable / Timeout
 @pytest.mark.anyio
 async def test_database_unavailable_resilience():

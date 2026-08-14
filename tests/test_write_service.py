@@ -19,6 +19,9 @@ from app.policy import PolicyBroker, StaticSlotRegistry
 # TEST DOUBLES
 # ------------------------------------------------------------
 
+from app.telemetry import trace_class
+
+@trace_class("broker")
 class StubBroker:
     def __init__(self, result: PolicyResult) -> None:
         self.result = result

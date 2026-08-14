@@ -21,6 +21,9 @@ from app.domain import (
 from app.services import Retriever, Ranker, ContextComposer, RetrievalCoordinator, EmbeddingService
 
 
+from app.telemetry import trace_class
+
+@trace_class("repository")
 class FakeRepository:
     def __init__(self, records_with_sim: List[Tuple[MemoryRecord, Optional[float]]]) -> None:
         self.records_with_sim = records_with_sim

@@ -40,6 +40,9 @@ async def clean_database():
             audit._events.clear()
 
 
+from app.telemetry import trace_class
+
+@trace_class("broker")
 class StubBroker(PolicyBroker):
     """Stub Broker to return predetermined policy decisions in tests."""
     def __init__(self, decision: PolicyDecision = PolicyDecision.SAVE, reason: str = "Test admission"):

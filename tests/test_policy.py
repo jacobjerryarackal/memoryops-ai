@@ -8,6 +8,9 @@ from app.repositories import InMemoryMemoryRepository
 # TEST DOUBLES / SPYING REPOSITORY
 # ------------------------------------------------------------
 
+from app.telemetry import trace_class
+
+@trace_class("repository")
 class SpyingRepository(InMemoryMemoryRepository):
     def __init__(self) -> None:
         super().__init__()

@@ -35,7 +35,7 @@ async def clean_all():
                     db_manager.pool = None
         await db_manager.initialize()
         async with db_manager.pool.acquire() as conn:
-            await conn.execute("TRUNCATE TABLE memories, memory_audit_logs, lifecycle_run_history CASCADE;")
+            await conn.execute("TRUNCATE TABLE memories, memory_audit_logs, lifecycle_run_history, idempotency_records CASCADE;")
     else:
         repo._records.clear()
         lifecycle_repo._runs.clear()

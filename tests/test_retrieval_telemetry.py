@@ -68,6 +68,9 @@ class MockEmbeddingService(EmbeddingService):
         return self.vector
 
 
+from app.telemetry import trace_class
+
+@trace_class("retriever")
 class MockRetriever(Retriever):
     def __init__(self, candidates: List[RetrievalCandidate], should_fail: bool = False) -> None:
         self.candidates = candidates
@@ -95,6 +98,7 @@ class MockRetriever(Retriever):
         return self.candidates
 
 
+@trace_class("ranker")
 class MockRanker(Ranker):
     def __init__(self, ranked: List[RankedCandidate], should_fail: bool = False) -> None:
         self.ranked = ranked
@@ -108,6 +112,7 @@ class MockRanker(Ranker):
         return self.ranked
 
 
+@trace_class("composer")
 class MockContextComposer(ContextComposer):
     def __init__(self, context: str, used_memories: List[UsedMemory], should_fail: bool = False) -> None:
         self.context = context

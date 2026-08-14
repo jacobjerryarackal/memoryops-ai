@@ -56,6 +56,9 @@ class DummyAuditService(AuditService):
         return self.events
 
 
+from app.telemetry import trace_class
+
+@trace_class("broker")
 class DummyPolicyBroker:
     def __init__(self, decision, target_memory_id=None, reason="test policy reason"):
         self.decision = decision
