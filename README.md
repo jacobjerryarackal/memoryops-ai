@@ -18,23 +18,23 @@ Governed long-term memory infrastructure for AI agents — featuring policy-cont
 
 ## Table of Contents
 
-1.  [What Problem Does MemoryOps AI Solve?](#what-problem-does-memoryops-ai-solve)
-2.  [Why MemoryOps AI?](#why-memoryops-ai-the-core-thesis)
-3.  [Key Features](#key-features)
-4.  [Architecture](#architecture)
-5.  [How It Works Internally](#how-it-works-internally)
-6.  [Why This Technology Stack?](#why-this-technology-stack)
-7.  [Security Model](#security-model)
-8.  [Evaluation & Quality Gates](#evaluation--quality-gates)
-9.  [Performance & Latency Benchmarks](#performance--latency-benchmarks)
-10. [Challenges Faced & Solutions](#challenges-faced--solutions)
-11. [Failure Handling & Graceful Degradation](#failure-handling--graceful-degradation)
-12. [Developer Experience & Quickstart](#developer-experience--quickstart)
-13. [Project Structure](#project-structure)
-14. [Testing Suite](#testing-suite)
-15. [Design Decisions (ADRs)](#design-decisions-adrs)
-16. [Limitations](#limitations)
-17. [Roadmap](#roadmap)
+1.  [What Problem Does MemoryOps AI Solve?](#1-what-problem-does-memoryops-ai-solve)
+2.  [Why MemoryOps AI?](#2-why-memoryops-ai-the-core-thesis)
+3.  [Key Features](#3-key-features)
+4.  [Architecture](#4-architecture)
+5.  [How It Works Internally](#5-how-it-works-internally)
+6.  [Why This Technology Stack?](#6-why-this-technology-stack)
+7.  [Security Model](#7-security-model)
+8.  [Evaluation & Quality Gates](#8-evaluation--quality-gates)
+9.  [Performance & Latency Benchmarks](#9-performance--latency-benchmarks)
+10. [Challenges Faced & Solutions](#10-challenges-faced--solutions)
+11. [Failure Handling & Graceful Degradation](#11-failure-handling--graceful-degradation)
+12. [Developer Experience & Quickstart](#12-developer-experience--quickstart)
+13. [Project Structure](#13-project-structure)
+14. [Testing Suite](#14-testing-suite)
+15. [Design Decisions (ADRs)](#15-design-decisions-adrs)
+16. [Limitations](#16-limitations)
+17. [Roadmap](#17-roadmap)
 
 ---
 
@@ -48,7 +48,7 @@ In modern LLM applications, long-term memory is typically implemented as a naive
 *   **Forgetting & Deletion Invariants:** Soft-deletions must execute cleanly across vector indices. Metadata filters are bypassable and prone to leakages.
 *   **Multi-Tenant Isolation:** Relational databases must enforce row-level safety rules on vector lookups without performance penalties.
 *   **Prompt Bloat:** Retrieved memories must not blindly flood the model context. Admissions controllers should filter and redact based on budgets.
-*   **Auditable Decisions:** Operators need a trace verifying *why* a memory was stored, updated, blocked, or selected.
+*   **Auditable Decisions:** Operators need a trace verifying *why* a memory was stored, retrieved, or deleted.
 
 ### The Contrast
 
@@ -112,23 +112,77 @@ Embeddings are merely searchable indices. Memory is state. Because it is system 
 
 ## 4. Architecture
 
-### System Flow
-```text
-Host AI Client Application
-      │
-      ▼ (HTTP JSON Payload / JWT Auth Token)
-API Gateway (FastAPI Uvicorn)
-      │
-      ├─► Authentication & Tenant Verification (JWT check)
-      │
-      ├──► Write Path (Candidate Extraction ──► Policy Broker Evaluation ──► Transaction Manager)
-      │      │
-      │      ├─► Save/Update/Merge (MemoryRecords DB table)
-      │      └─► Immutable Evidence (memory_audit_logs DB table)
-      │
-      └──► Read Path (Query Vectorization ──► Repository Candidates Query ──► Deterministic Ranking)
-             │
-             └─► Context Admission (Selects memories fit within prompt character limit)
+The following diagram details the actual implemented services, routing gates, data paths, and storage integrations of the MemoryOps AI engine:
+
+```mermaid
+graph TB
+    subgraph Clients ["Client Interfaces & Tools"]
+        Agent["AI Agent / Application"]
+        SDK["Python SDK"]
+        Dashboard["React / Next.js Dashboard"]
+        Evals["Evaluation / Quality Gates"]
+    end
+
+    subgraph API ["Entry & Routing"]
+        Gateway["API Gateway (FastAPI)"]
+        Auth["Authentication / Authorization (JWT)"]
+        Obs["Observability (Spans & Logs)"]
+    end
+
+    subgraph WritePath ["Governed Write Path"]
+        Idempotency["Idempotency check"]
+        Broker["Policy Broker"]
+        Admission["Admission checks"]
+        Identity["Identity / Conflict Resolution"]
+        OCC["OCC version check"]
+    end
+
+    subgraph ReadPath ["Governed Read Path"]
+        Embed["Embedding Provider (OpenAI/Gemini/Fallback)"]
+        Candidates["Candidate Retrieval"]
+        Hybrid["Hybrid Retrieval (Vector + Lexical)"]
+        Ranker["Deterministic Ranking (Multi-factor)"]
+        Budget["Token Budget constraints"]
+        Composer["Context Composer"]
+    end
+
+    subgraph Storage ["Storage & Audit Layer"]
+        DB[("PostgreSQL + pgvector")]
+        RLS["PostgreSQL RLS (Tenant isolation)"]
+        Tx["Transactions / Savepoints"]
+        Audit["Audit / Provenance (Immutable logs)"]
+        Lifecycle["Lifecycle (Workers: Retention, Decay, Compaction)"]
+        Explain["Evidence / Explain API"]
+    end
+
+    %% Flow connections
+    Agent & SDK & Dashboard & Evals --> Gateway
+    Gateway --> Auth
+    Gateway -.-> Obs
+
+    %% Write Path connections
+    Auth -->|"Write requests"| Idempotency
+    Idempotency --> Broker
+    Broker --> Admission
+    Admission --> Identity
+    Identity --> OCC
+    OCC --> Tx
+
+    %% Read Path connections
+    Auth -->|"Read requests"| Embed
+    Embed --> Candidates
+    Candidates --> Hybrid
+    Hybrid --> Ranker
+    Ranker --> Budget
+    Budget --> Composer
+    Composer --> Explain
+
+    %% Storage Connections
+    Tx --> RLS
+    RLS --> DB
+    Tx --> Audit
+    Lifecycle --> DB
+    Explain --> Audit
 ```
 
 ---
@@ -195,7 +249,7 @@ The `LifecycleRunner` periodic schedule registers four background workers:
 
 ## 8. Evaluation & Quality Gates
 
-The systematic quality suite ([runner.py](file:///d:/AI/memoryops-ai/evals/runner.py)) evaluates 28 golden dataset test scenarios. All programmatic gates pass:
+The systematic quality suite ([runner.py](file:///d:/AI/memoryops-ai/evals/runner.py)) evaluates 28 golden dataset test scenarios. All programmatic gates pass on the current golden dataset (note that this verifies design invariants on the target test suite, but does not represent universal 100% retrieval accuracy under arbitrary workloads):
 
 *   **Mean Precision@K:** 100% (Target: $\ge$ 85.00%)
 *   **Mean Recall@K:** 100% (Target: $\ge$ 80.00%)
@@ -273,7 +327,21 @@ pip install -r requirements-dev.txt
 ```bash
 cp .env.example .env
 ```
-Update active variables. Set `DATABASE_TYPE=memory` for local development.
+Update active variables in your local `.env`. 
+
+#### Offline Local Development (Default)
+To run offline without database servers or API keys, make sure these parameters are set:
+```env
+DATABASE_TYPE=memory
+EMBEDDING_PROVIDER=fallback
+```
+
+#### Gemini Provider Configuration
+To run semantic search using Google Gemini, update these settings (credentials are resolved strictly in the backend, the frontend never accesses or exposes them):
+```env
+EMBEDDING_PROVIDER=gemini
+GEMINI_API_KEY=your_google_gemini_api_key_here
+```
 
 ### 3. Run Database
 ```bash
