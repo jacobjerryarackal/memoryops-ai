@@ -169,12 +169,16 @@ async def test_scheduled_execution():
     worker = DummyWorker("scheduled_job", process_count=1)
     runner.register_worker(worker)
 
+    db_type = os.environ.get("DATABASE_TYPE", "memory").strip().lower()
+    interval = 0.05 if db_type == "memory" else 0.2
+    wait_time = 0.5 if db_type == "memory" else 2.5
+
     scheduler = WorkerScheduler(runner)
-    scheduler.schedule_job("scheduled_job", 0.02)
+    scheduler.schedule_job("scheduled_job", interval)
 
     await scheduler.start("tenant_a", "user_a")
     # Wait for execution loop to trigger the scheduled job a few times
-    await asyncio.sleep(0.7)
+    await asyncio.sleep(wait_time)
     await scheduler.stop()
 
     # Worker should have run at least 2 times
