@@ -26,7 +26,8 @@ class Settings(BaseSettings):
     
     # TLS/SSL Configuration
     postgres_ssl: str = Field(default="prefer")  # disable, prefer, require, verify-ca, verify-full
-    
+    postgres_network: str = Field(default="public") # public or private
+
     # Production-safety and defaults
     environment: str = Field(default="development")
 
@@ -74,6 +75,15 @@ class Settings(BaseSettings):
             raise ValueError(f"POSTGRES_SSL must be one of {valid}")
         return v_clean
 
+    @field_validator("postgres_network")
+    @classmethod
+    def validate_postgres_network(cls, v: str) -> str:
+        v_clean = v.strip().lower()
+        valid = ("public", "private")
+        if v_clean not in valid:
+            raise ValueError(f"POSTGRES_NETWORK must be one of {valid}")
+        return v_clean
+
     def model_post_init(self, __context) -> None:
         # Cross-field validations
         if self.database_type == "postgres":
@@ -82,10 +92,21 @@ class Settings(BaseSettings):
             
             # Enforce production safety constraints
             if self.environment.strip().lower() == "production":
-                if self.postgres_ssl.strip().lower() in ("disable", "prefer"):
-                    raise ValueError("Production safety violation: SSL/TLS must be 'require', 'verify-ca', or 'verify-full' in production.")
+                # Public PostgreSQL connections must use PostgreSQL TLS.
+                # Private Railway connections are already encrypted by Railway's
+                # WireGuard private network, so PostgreSQL-level SSL is not required.
+                if self.postgres_network == "public":
+                    if self.postgres_ssl.strip().lower() in ("disable", "prefer"):
+                        raise ValueError(
+                "Production safety violation: SSL/TLS must be 'require', "
+                "'verify-ca', or 'verify-full' for public PostgreSQL connections."
+            )
+
                 if self.postgres_user == "postgres" or self.postgres_password == "postgres":
-                    raise ValueError("Production safety violation: Default postgres user or password is not allowed in production.")
+                    raise ValueError(
+                        "Production safety violation: Default postgres user or password "
+                        "is not allowed in production."
+                )
 
 
 # Global instance instantiated on import to trigger fail-fast validation
