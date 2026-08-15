@@ -34,12 +34,13 @@ async def healthz():
 
 @app.get("/readyz")
 async def readyz():
-    has_key = bool(os.environ.get("OPENAI_API_KEY"))
+    has_gemini_key = bool(os.environ.get("GEMINI_API_KEY"))
+
     return {
-        "ready": has_key,
+        "ready": has_gemini_key,
         "storage": "ready",
-        "llm_provider": "ready",
-        "embeddings_provider": "ready" if has_key else "unconfigured",
+        "llm_provider": "ready" if has_gemini_key else "unconfigured",
+        "embeddings_provider": "ready" if has_gemini_key else "unconfigured",
         "detail": {}
     }
 
