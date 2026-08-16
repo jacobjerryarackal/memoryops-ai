@@ -1,33 +1,33 @@
 import os
+from datetime import datetime, timedelta, timezone
 
+import jwt
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
-from ..services.auth import create_access_token
+from ..config import settings
 
 
-router = APIRouter()
+router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-class LoginRequest(BaseModel):
+class TokenRequest(BaseModel):
     username: str = Field(..., min_length=1)
     password: str = Field(..., min_length=1)
 
 
-class LoginResponse(BaseModel):
+class TokenResponse(BaseModel):
     access_token: str
-    token_type: str
+    token_type: str = "bearer"
     expires_in: int
-    tenant_id: str
-    user_id: str
 
 
-@router.post("/auth/login", response_model=LoginResponse)
-async def login(request: LoginRequest):
-    expected_username = os.environ.get("DEMO_USERNAME", "demo")
-    expected_password = os.environ.get("DEMO_PASSWORD")
+@router.post("/token", response_model=TokenResponse)
+async def create_token(request: TokenRequest):
+    expected_username = os.environ.get("DEMO_AUTH_USERNAME")
+    expected_password = os.environ.get("DEMO_AUTH_PASSWORD")
 
-    if not expected_password:
+    if not expected_username or not expected_password:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Demo authentication is not configured.",
@@ -43,29 +43,37 @@ async def login(request: LoginRequest):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    tenant_id = os.environ.get("DEMO_TENANT_ID", "tenant_demo")
-    user_id = os.environ.get("DEMO_USER_ID", "user_demo")
+    now = datetime.now(timezone.utc)
+    expires_in = 3600
 
-    scopes = {
-        "memory:read",
-        "memory:write",
-        "audit:read",
+    payload = {
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
+        "iat": now,
+        "exp": now + timedelta(seconds=expires_in),
+
+        # Demo identity
+        "tenant_id": "tenant_demo",
+        "user_id": "user_demo",
+
+        # Application permissions
+        "scopes": [
+            "memory:read",
+            "memory:write",
+            "audit:read",
+            "governance:admin",
+        ],
+
+        "is_admin": True,
     }
 
-    expires_in = 60 * 60
-
-    token = create_access_token(
-        tenant_id=tenant_id,
-        user_id=user_id,
-        scopes=scopes,
-        is_admin=False,
-        expires_minutes=60,
+    token = jwt.encode(
+        payload,
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithms[0],
     )
 
-    return LoginResponse(
+    return TokenResponse(
         access_token=token,
-        token_type="bearer",
         expires_in=expires_in,
-        tenant_id=tenant_id,
-        user_id=user_id,
     )
