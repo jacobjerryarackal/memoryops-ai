@@ -2,6 +2,7 @@ import os
 import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from .routes.chat import router as chat_router
 from .routes.governance import router as governance_router
 from .repositories.postgres_connection import db_manager
@@ -19,6 +20,20 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="MemoryOps AI Gateway API", lifespan=lifespan)
+
+allowed_origins = [
+    origin.strip()
+    for origin in os.environ.get("ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 START_TIME = time.time()
 
