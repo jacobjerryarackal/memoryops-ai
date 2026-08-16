@@ -14,7 +14,7 @@ END
 $$;
 
 -- 2. Grant connection and schema privileges
-GRANT CONNECT ON DATABASE memoryops_ai TO memoryops_app;
+GRANT CONNECT ON DATABASE railway TO memoryops_app;
 GRANT USAGE ON SCHEMA public TO memoryops_app;
 
 -- 3. Grant access to existing tables and sequences
