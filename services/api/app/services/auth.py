@@ -1,6 +1,7 @@
 import os
 import logging
 import jwt
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Set
 from pydantic import BaseModel, Field
 from fastapi import Request, Depends, HTTPException, status
@@ -9,6 +10,32 @@ from ..config import settings
 
 logger = logging.getLogger("app.services.auth")
 
+def create_access_token(
+    tenant_id: str,
+    user_id: str,
+    scopes: Set[str],
+    is_admin: bool = False,
+    expires_minutes: int = 60,
+) -> str:
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(minutes=expires_minutes)
+
+    payload = {
+        "tenant_id": tenant_id,
+        "user_id": user_id,
+        "scopes": list(scopes),
+        "is_admin": is_admin,
+        "iss": settings.jwt_issuer,
+        "aud": settings.jwt_audience,
+        "iat": now,
+        "exp": expires_at,
+    }
+
+    return jwt.encode(
+        payload,
+        settings.jwt_secret,
+        algorithm=settings.jwt_algorithms[0],
+    )
 
 class Identity(BaseModel):
     """
