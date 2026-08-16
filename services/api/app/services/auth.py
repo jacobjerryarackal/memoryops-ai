@@ -102,8 +102,8 @@ class JWTAuthenticationService(AuthenticationService):
                 }
             )
             
-            tenant_id = payload.get("tenant_id")
-            user_id = payload.get("user_id")
+            tenant_id = payload["tenant_id"]
+            user_id = payload["user_id"]
             scopes = set(payload.get("scopes", []))
             is_admin = bool(payload.get("is_admin", False))
             
