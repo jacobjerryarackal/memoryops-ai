@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .routes.chat import router as chat_router
 from .routes.governance import router as governance_router
+from .routes.auth import router as auth_router
 from .repositories.postgres_connection import db_manager
 
 
@@ -61,5 +62,6 @@ async def readyz():
 
 
 # Include the routes with prefix /api
+app.include_router(auth_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(governance_router, prefix="/api")
