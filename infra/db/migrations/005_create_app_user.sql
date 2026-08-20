@@ -14,7 +14,14 @@ END
 $$;
 
 -- 2. Grant connection and schema privileges
-GRANT CONNECT ON DATABASE railway TO memoryops_app;
+DO $$
+DECLARE
+    current_db TEXT;
+BEGIN
+    SELECT current_database() INTO current_db;
+    EXECUTE format('GRANT CONNECT ON DATABASE %I TO memoryops_app', current_db);
+END
+$$;
 GRANT USAGE ON SCHEMA public TO memoryops_app;
 
 -- 3. Grant access to existing tables and sequences

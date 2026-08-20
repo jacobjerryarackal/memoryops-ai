@@ -21,8 +21,31 @@ async def run_migrations() -> None:
     db = os.environ.get("POSTGRES_DB", "postgres")
     user = os.environ.get("POSTGRES_USER", "postgres")
     password = os.environ.get("POSTGRES_PASSWORD", "postgres")
+    ssl_mode = os.environ.get("POSTGRES_SSL", "disable").strip().lower()
 
-    logger.info(f"Connecting to database {host}:{port}/{db}...")
+    from typing import Any
+    ssl_param: Any = None
+    if ssl_mode == "disable":
+        ssl_param = False
+    elif ssl_mode == "prefer":
+        ssl_param = "prefer"
+    elif ssl_mode == "require":
+        ssl_param = True
+    elif ssl_mode in ("verify-ca", "verify-full"):
+        import ssl
+        ssl_context = ssl.create_default_context(
+            purpose=ssl.Purpose.SERVER_AUTH
+        )
+        if ssl_mode == "verify-ca":
+            ssl_context.check_hostname = False
+        else:
+            ssl_context.check_hostname = True
+        ssl_context.verify_mode = ssl.CERT_REQUIRED
+        ssl_param = ssl_context
+
+    logger.info(
+        f"Connecting to {host}:{port}/{db} (SSL: {ssl_mode})..."
+    )
     try:
         conn = await asyncpg.connect(
             host=host,
@@ -30,6 +53,7 @@ async def run_migrations() -> None:
             database=db,
             user=user,
             password=password,
+            ssl=ssl_param,
         )
     except Exception as e:
         logger.error(f"Failed to connect to PostgreSQL database: {e}")
@@ -55,15 +79,18 @@ async def run_migrations() -> None:
 
         for sql_file in sql_files:
             migration_name = sql_file.name
-            
+
             # Check if migration already applied
             already_applied = await conn.fetchval(
-                "SELECT EXISTS(SELECT 1 FROM migrations_applied WHERE migration_name = $1)",
+                "SELECT EXISTS(SELECT 1 FROM migrations_applied "
+                "WHERE migration_name = $1)",
                 migration_name
             )
 
             if already_applied:
-                logger.info(f"Migration {migration_name} is already applied. Skipping.")
+                logger.info(
+                    f"Migration {migration_name} is already applied. Skipping."
+                )
                 continue
 
             logger.info(f"Applying migration {migration_name}...")
@@ -73,7 +100,8 @@ async def run_migrations() -> None:
             async with conn.transaction():
                 await conn.execute(sql_content)
                 await conn.execute(
-                    "INSERT INTO migrations_applied (migration_name) VALUES ($1)",
+                    "INSERT INTO migrations_applied (migration_name) "
+                    "VALUES ($1)",
                     migration_name
                 )
             logger.info(f"Migration {migration_name} applied successfully.")
