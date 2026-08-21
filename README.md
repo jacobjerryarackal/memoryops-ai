@@ -10,7 +10,7 @@ Governed long-term memory infrastructure for AI agents — featuring policy-cont
 
 *   **Current Version:** `0.4.0`
 *   **Development Status:** Stable Hardened Release Candidate (Phase 3E Complete)
-*   **Test Suite:** 283 tests passing cleanly across In-Memory and PostgreSQL runners
+*   **Test Suite:** 283 tests verifying In-Memory and PostgreSQL runners (253 passing cleanly offline/in-memory)
 *   **Evaluation Pass Rate:** 100% (28 golden cases verified on the benchmark runner)
 *   **License:** MIT
 
@@ -18,27 +18,49 @@ Governed long-term memory infrastructure for AI agents — featuring policy-cont
 
 ## Table of Contents
 
-1.  [What Problem Does MemoryOps AI Solve?](#1-what-problem-does-memoryops-ai-solve)
-2.  [Why MemoryOps AI?](#2-why-memoryops-ai-the-core-thesis)
-3.  [Key Features](#3-key-features)
-4.  [Architecture](#4-architecture)
-5.  [How It Works Internally](#5-how-it-works-internally)
-6.  [Why This Technology Stack?](#6-why-this-technology-stack)
-7.  [Security Model](#7-security-model)
-8.  [Evaluation & Quality Gates](#8-evaluation--quality-gates)
-9.  [Performance & Latency Benchmarks](#9-performance--latency-benchmarks)
-10. [Challenges Faced & Solutions](#10-challenges-faced--solutions)
-11. [Failure Handling & Graceful Degradation](#11-failure-handling--graceful-degradation)
-12. [Developer Experience & Quickstart](#12-developer-experience--quickstart)
-13. [Project Structure](#13-project-structure)
-14. [Testing Suite](#14-testing-suite)
-15. [Design Decisions (ADRs)](#15-design-decisions-adrs)
-16. [Limitations](#16-limitations)
-17. [Roadmap](#17-roadmap)
+1.  [Live Demo / Quick Links](#live-demo--quick-links)
+2.  [What Problem Does MemoryOps AI Solve?](#what-problem-does-memoryops-ai-solve)
+3.  [Why MemoryOps AI? (The Core Thesis)](#why-memoryops-ai-the-core-thesis)
+4.  [Key Capabilities](#key-capabilities)
+5.  [Architecture](#architecture)
+6.  [Memory Lifecycle](#memory-lifecycle)
+7.  [Retrieval Strategy & Fallback Mechanics](#retrieval-strategy--fallback-mechanics)
+8.  [Authentication & Authorization](#authentication--authorization)
+9.  [Multi-Tenancy & Database-Level RLS](#multi-tenancy--database-level-rls)
+10. [Idempotency Mechanism](#idempotency-mechanism)
+11. [Auditability & Observability](#auditability--observability)
+12. [Tech Stack](#tech-stack)
+13. [Project Structure](#project-structure)
+14. [Getting Started](#getting-started)
+15. [API Reference](#api-reference)
+16. [Testing & Verification](#testing--verification)
+17. [Production Verification](#production-verification)
+18. [Current Limitations](#current-limitations)
+19. [Roadmap](#roadmap)
+20. [Design Decisions (ADRs)](#design-decisions-adrs)
+21. [License](#license)
 
 ---
 
-## 1. What Problem Does MemoryOps AI Solve?
+## Live Demo / Quick Links
+
+### Local Development Links
+*   **Frontend (Dashboard):** [http://localhost:3000](http://localhost:3000)
+*   **Backend API:** [http://127.0.0.1:8000](http://127.0.0.1:8000)
+*   **Swagger / Interactive API Docs:** [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+*   **OpenAPI Specification JSON:** [http://127.0.0.1:8000/openapi.json](http://127.0.0.1:8000/openapi.json)
+
+### Deployed Production Links
+*   **Production API Base:** `https://memoryops-ai-production-47ac.up.railway.app`
+*   **Production Swagger / API Docs:** [https://memoryops-ai-production-47ac.up.railway.app/docs](https://memoryops-ai-production-47ac.up.railway.app/docs)
+*   **Production OpenAPI Specification JSON:** [https://memoryops-ai-production-47ac.up.railway.app/openapi.json](https://memoryops-ai-production-47ac.up.railway.app/openapi.json)
+*   **Production Health Endpoint:** [https://memoryops-ai-production-47ac.up.railway.app/healthz](https://memoryops-ai-production-47ac.up.railway.app/healthz)
+*   **Production Readiness Endpoint:** [https://memoryops-ai-production-47ac.up.railway.app/readyz](https://memoryops-ai-production-47ac.up.railway.app/readyz)
+*   **Production Frontend (Dashboard):** `[Production frontend URL — configure after deployment]`
+
+---
+
+## What Problem Does MemoryOps AI Solve?
 
 In modern LLM applications, long-term memory is typically implemented as a naive vector search cache. While this retrieves context, it fails in production settings due to several operational challenges:
 
@@ -50,31 +72,9 @@ In modern LLM applications, long-term memory is typically implemented as a naive
 *   **Prompt Bloat:** Retrieved memories must not blindly flood the model context. Admissions controllers should filter and redact based on budgets.
 *   **Auditable Decisions:** Operators need a trace verifying *why* a memory was stored, retrieved, or deleted.
 
-### The Contrast
-
-#### Naive Vector Retrieval
-```text
-User Message ──> Embedding Model ──> Vector DB Index ──> Top-K Context Injection
-```
-
-#### Governed MemoryOps Pipeline
-```text
-User Message
- ├──> Candidate Extraction (Content, Slot, Importance)
- ├──> Policy Broker Evaluation (Regex Secret Filter, Sensitivity Route)
- ├──> Identity Slot Resolution (Single-occupant Update vs Multi-occupant Add)
- ├──> Transaction Manager Scope (Savepoints/Snapshot Isolation)
- ├──> Repository Write (PostgreSQL + pgvector / In-Memory Mock)
- ├──> Immutable Auditing (memory_audit_logs Row Insert)
- ├──> Hybrid Retrieval (pgvector Cosine Distance + Python Jaccard Matcher)
- ├──> Deterministic Ranker (Weighted multi-factor score & strict tie-breakers)
- ├──> Context Admission (Character budget, oversized skipping)
- └──> Telemetry & Evidence (Span trace_id propagation)
-```
-
 ---
 
-## 2. Why MemoryOps AI? (The Core Thesis)
+## Why MemoryOps AI? (The Core Thesis)
 
 ### Memory is System State, Not Merely Embeddings
 
@@ -88,29 +88,29 @@ Embeddings are merely searchable indices. Memory is state. Because it is system 
 
 ---
 
-## 3. Key Features
+## Key Capabilities
 
-| Capability | What It Provides | Implemented Evidence / File |
+| Capability | What It Provides | Implemented Reference |
 | :--- | :--- | :--- |
-| **Governed Writes** | Policy-driven filtering of candidate writes. | [broker.py](file:///d:/AI/memoryops-ai/services/api/app/policy/broker.py) |
-| **Hybrid Retrieval** | Combined vector search and lexical Jaccard matching. | [retrieval.py](file:///d:/AI/memoryops-ai/services/api/app/services/retrieval.py) |
-| **Context Admission** | Strict character-limit budgeting with oversized skipping. | [retrieval.py](file:///d:/AI/memoryops-ai/services/api/app/services/retrieval.py) |
-| **Multi-Tenancy** | Partitioning of records by Tenant ID and User ID. | [postgres.py](file:///d:/AI/memoryops-ai/services/api/app/repositories/postgres.py) |
-| **PostgreSQL RLS** | Database-enforced tenant Row-Level Security. | [008_harden_row_level_security.sql](file:///d:/AI/memoryops-ai/infra/db/migrations/008_harden_row_level_security.sql) |
-| **JWT Authorization** | JWT verification with tenant-scope check rules. | [auth.py](file:///d:/AI/memoryops-ai/services/api/app/services/auth.py) |
-| **Idempotency** | Prevents write duplications via request-key locks. | [idempotency.py](file:///d:/AI/memoryops-ai/services/api/app/services/idempotency.py) |
-| **OCC** | Version-column optimistic concurrency checks. | [postgres.py](file:///d:/AI/memoryops-ai/services/api/app/repositories/postgres.py) |
-| **Transactions** | contextvars-backed SQL savepoints and memory snapshots. | [transactions.py](file:///d:/AI/memoryops-ai/services/api/app/repositories/transactions.py) |
-| **Deletion Guarantees** | Soft deletion followed by vector and content compaction. | [governance.py](file:///d:/AI/memoryops-ai/services/api/app/services/governance.py) |
-| **Audit Trails** | Immutable, append-only mutation event logging database. | [audit.py](file:///d:/AI/memoryops-ai/services/api/app/services/audit.py) |
-| **Lifecycle Engine** | Background tasks for Decay, Compaction, and Retention. | [lifecycle.py](file:///d:/AI/memoryops-ai/services/api/app/services/lifecycle.py) |
-| **SDK** | Typed async HTTP client. | [client.py](file:///d:/AI/memoryops-ai/sdk/memoryops-sdk/memoryops_sdk/client.py) |
-| **Evaluation Suite** | Golden scenario runner with programmatic quality gates. | [runner.py](file:///d:/AI/memoryops-ai/evals/runner.py) |
-| **Observability** | Trace ID propagation across decorators and logs. | [telemetry.py](file:///d:/AI/memoryops-ai/services/api/app/telemetry.py) |
+| **Governed Writes** | Policy-driven filtering of candidate writes. | [broker.py](services/api/app/policy/broker.py) |
+| **Hybrid Retrieval** | Combined vector search and lexical Jaccard matching. | [retrieval.py](services/api/app/services/retrieval.py) |
+| **Context Admission** | Strict character-limit budgeting with oversized skipping. | [retrieval.py](services/api/app/services/retrieval.py) |
+| **Multi-Tenancy** | Partitioning of records by Tenant ID and User ID. | [postgres.py](services/api/app/repositories/postgres.py) |
+| **PostgreSQL RLS** | Database-enforced tenant Row-Level Security. | [008_harden_row_level_security.sql](infra/db/migrations/008_harden_row_level_security.sql) |
+| **JWT Authorization** | JWT verification with tenant-scope check rules. | [auth.py](services/api/app/services/auth.py) |
+| **Idempotency** | Prevents write duplications via request-key locks. | [idempotency.py](services/api/app/services/idempotency.py) |
+| **OCC** | Version-column optimistic concurrency checks. | [postgres.py](services/api/app/repositories/postgres.py) |
+| **Transactions** | contextvars-backed SQL savepoints and memory snapshots. | [transactions.py](services/api/app/repositories/transactions.py) |
+| **Deletion Guarantees** | Soft deletion followed by vector and content compaction. | [governance.py](services/api/app/services/governance.py) |
+| **Audit Trails** | Immutable, append-only mutation event logging database. | [audit.py](services/api/app/services/audit.py) |
+| **Lifecycle Engine** | Background tasks for Decay, Compaction, and Retention. | [lifecycle.py](services/api/app/services/lifecycle.py) |
+| **SDK** | Typed async HTTP client. | [client.py](sdk/memoryops-sdk/memoryops_sdk/client.py) |
+| **Evaluation Suite** | Golden scenario runner with programmatic quality gates. | [runner.py](evals/runner.py) |
+| **Observability** | Trace ID propagation across decorators and logs. | [telemetry.py](services/api/app/telemetry.py) |
 
 ---
 
-## 4. Architecture
+## Architecture
 
 The following diagram details the actual implemented services, routing gates, data paths, and storage integrations of the MemoryOps AI engine:
 
@@ -187,244 +187,330 @@ graph TB
 
 ---
 
-## 5. How It Works Internally
+## Memory Lifecycle
 
-### Write Path Flow
+Memory is treated as governed system state, routing through the following steps:
 
-1.  **Extraction:** LLMs propose a candidate memory containing `content`, `memory_type`, `importance`, and `identity_slot`.
-2.  **Secret Filtering:** Regular expressions scan content for credentials (e.g. `sk-[a-zA-Z0-9-]{48,}`) and passwords. Violations trigger an immediate `BLOCK` policy decision.
-3.  **Sensitivity Routing:** Candidates flagged as `high` sensitivity are stored with `status = PENDING` and routed to the administrator queue, bypassing retrievability.
-4.  **Identity Slot Resolution:** Single-occupant slot configurations (e.g. `user_job_title`) check for active occupants under the user scope:
-    *   If occupied, the broker issues an `UPDATE_EXISTING` instruction. The write service patches the old record's content, zeroes out its stale embedding, and increments its schema version.
-    *   If unoccupied or multi-occupancy, a new `active` record is created.
-5.  **Audit trail:** Writes execute inside a database transaction block, committing the record and inserting a row to `memory_audit_logs` atomically.
-
-### Read Path Flow
-
-1.  **Vectorization:** The query is mapped to a 1536-dimensional float vector.
-2.  **Pool Fetching:** The repository fetches up to 50 active candidates matching `status = ACTIVE`, filtering strictly by Tenant ID.
-3.  **Lexical Matching:** Python term tokenization splits queries and contents to compute matching coefficients:
-    $$\text{keyword\_score} = \frac{\text{matched\_query\_terms}}{\max(\text{total\_unique\_query\_terms}, 1)}$$
-4.  **Normalized Scoring:** The ranker blends signals into a single score:
-    $$\text{Score} = 0.35 \times \text{semantic} + 0.20 \times \text{lexical} + 0.15 \times \text{importance} + 0.10 \times \text{recency} + 0.10 \times \text{confidence} + 0.10 \times \text{reinforcement}$$
-5.  **Tie-Breaking:** Identical scores are resolved deterministically using `created_at` DESC, then `id` (UUID) ASC.
-6.  **Context Admission:** Candidates are packed into the context. If a candidate exceeds the remaining token/character budget limit (e.g., `4000` chars), it is **skipped** (not truncated), and subsequent smaller candidates are evaluated.
-
-### Lifecycle Workers
-
-The `LifecycleRunner` periodic schedule registers four background workers:
-
-*   **DecayWorker:** Decrements the importance of unused active records. When importance reaches `0`, it archives the record (`status = archived`).
-*   **RetentionWorker:** Evaluates expiration timestamps and transitions records to `deleted`.
-*   **ReflectionWorker:** Computes Jaccard similarity metrics over active pools and generates consolidation proposals.
-*   **CompactionWorker:** Sanitizes deleted records by zeroing out embeddings and changing content to `"[COMPACTED]"`.
-
----
-
-## 6. Why This Technology Stack?
-
-*   **Python:** Chosen for its ecosystem of data utilities and native async/await asynchronous constructs.
-*   **FastAPI:** Features automatic OpenAPI documentation, clean dependency injection, and Pydantic schema validation.
-*   **PostgreSQL:** Serves as the system of record. Transactional ACID properties prevent state mismatches.
-*   **pgvector:** Enables vector searches inside the relational DB, avoiding separate index synchronization issues.
-*   **Pydantic:** Validates configuration schemas and API payloads.
-*   **asyncpg:** A high-performance async database client featuring connection pools.
-*   **Next.js & React:** Powers the glassmorphic administration and metrics dashboard.
-*   **Docker:** Bundles dependencies for reproducible local and cloud setups.
-
----
-
-## 7. Security Model
-
-| Security Gate | Level | Enforcement Mechanism |
-| :--- | :--- | :--- |
-| **Authentication** | Application | JWT signature checks, expiry audits, and issuer validations. |
-| **Tenant Isolation** | Database | Row-Level Security (RLS) constraints on PostgreSQL table targets. |
-| **RLS Connection Setting** | Database | Context variables set the tenant parameter on active sessions. |
-| **Secret Scanning** | Application | Regular expressions block credentials on write attempts. |
-| **Immutable Audits** | Database | Restricts SQL schemas to write-only operations for audit tables. |
-| **Legal Hold** | Application | Checks `legal_hold` flags to block deletions and compaction. |
-
----
-
-## 8. Evaluation & Quality Gates
-
-The systematic quality suite ([runner.py](file:///d:/AI/memoryops-ai/evals/runner.py)) evaluates 28 golden dataset test scenarios. All programmatic gates pass on the current golden dataset (note that this verifies design invariants on the target test suite, but does not represent universal 100% retrieval accuracy under arbitrary workloads):
-
-*   **Mean Precision@K:** 100% (Target: $\ge$ 85.00%)
-*   **Mean Recall@K:** 100% (Target: $\ge$ 80.00%)
-*   **Mean Reciprocal Rank (MRR):** 100% (Target: $\ge$ 80.00%)
-*   **Tenant Leakage Rate:** 0.00% (Target: $\le$ 0.00%)
-*   **User Leakage Rate:** 0.00% (Target: $\le$ 0.00%)
-*   **Inactive Memory Leakage Rate:** 0.00% (Target: $\le$ 0.00%)
-*   **Deleted Memory Leakage Rate:** 0.00% (Target: $\le$ 0.00%)
-*   **Budget Overflow Rate:** 0.00% (Target: $\le$ 0.00%)
-
-### Metrics Diagnostics
-The latest execution results are committed to [evaluation_evidence.json](file:///d:/AI/memoryops-ai/evals/evaluation_evidence.json).
-
----
-
-## 9. Performance & Latency Benchmarks
-
-Stress benchmarks compared the In-Memory mock against the PostgreSQL + pgvector backend (aggregating 100 sequential operations, pool size `min=2, max=10`):
-
-### Client Round-Trip Latency (ms)
-
-#### In-Memory Backend (No DB Overhead)
-*   **remember (write):** p50 = `24.57 ms` | p95 = `35.95 ms` | p99 = `55.47 ms`
-*   **recall (retrieval):** p50 = `18.79 ms` | p95 = `43.98 ms` | p99 = `115.00 ms`
-*   **search (list):** p50 = `20.32 ms` | p95 = `33.24 ms` | p99 = `43.80 ms`
-*   **explain (audit):** p50 = `18.91 ms` | p95 = `27.93 ms` | p99 = `29.28 ms`
-*   **delete:** p50 = `19.76 ms` | p95 = `33.37 ms` | p99 = `36.56 ms`
-
-#### PostgreSQL Backend
-*   **remember (write):** p50 = `74.31 ms` | p95 = `295.52 ms` | p99 = `1518.48 ms`
-*   **recall (retrieval):** p50 = `23.80 ms` | p95 = `40.83 ms` | p99 = `89.37 ms`
-*   **search (list):** p50 = `49.85 ms` | p95 = `76.43 ms` | p99 = `651.19 ms`
-*   **explain (audit):** p50 = `24.25 ms` | p95 = `63.22 ms` | p99 = `667.56 ms`
-*   **delete:** p50 = `72.17 ms` | p95 = `117.70 ms` | p99 = `915.43 ms`
-
----
-
-## 10. Challenges Faced & Solutions
-
-### 1. Telemetry Decorators Popped Kwargs
-*   **Challenge:** Telemetry decorators popped `trace_id` from keyword args to initialize log spans. This starved downstream retrieval methods of trace context, breaking trace propagation.
-*   **Solution:** Refactored decorators in [telemetry.py](file:///d:/AI/memoryops-ai/services/api/app/telemetry.py) to inspect wrapped function signatures. If the method parameter list expects `trace_id`, the decorator retains it in `kwargs` instead of stripping it.
-
-### 2. Pydantic Model Mutation Restriction
-*   **Challenge:** Attempting to assign `updated.trace_id = trace_id` on Pydantic schema instances in `write.py` threw validation errors because extra properties are blocked in schemas.
-*   **Solution:** Removed the invalid assignment. The trace identifier is passed directly to the repository update contract signature instead of mutating model properties.
-
-### 3. PostgreSQL Docker Pool Test Flakiness
-*   **Challenge:** The scheduled execution timing test triggered overlapping database transactions under slow WSL2 container runs, causing database concurrency locks and test flakiness.
-*   **Solution:** Refactored [test_lifecycle_infrastructure.py](file:///d:/AI/memoryops-ai/tests/test_lifecycle_infrastructure.py) to scale scheduler check intervals and wait times dynamically based on `DATABASE_TYPE`.
-
----
-
-## 11. Failure Handling & Graceful Degradation
-
-*   **Embedding Outages:** If the embedding model fails, the system falls back to Jaccard lexical match scores, preserving retrieval capabilities.
-*   **Transaction Failures:** Mismatches in database commits roll back the connection to SQL `SAVEPOINT` positions.
-*   **Database Outages:** When PostgreSQL is offline, requests return `503 Service Unavailable` with `STORAGE_UNAVAILABLE` error codes.
-
----
-
-## 12. Developer Experience & Quickstart
-
-### 1. Installation
-```bash
-git clone https://github.com/jacobjerryarackal/memoryops-ai.git
-cd memoryops-ai
-python -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
+```text
+User Message
+    ↓
+Chat API (Validation of coordinates against JWT identity)
+    ↓
+Identity / Authorization
+    ↓
+Memory Candidate Extraction (Evaluates statements starting with "remember that ")
+    ↓
+Policy Evaluation (Scans content for credentials and blocks high sensitivity/secrets)
+    ↓
+Memory Persistence (Updates active slot entries or inserts new records under transaction blocks)
+    ↓
+PostgreSQL (Saves to 'memories' table and logs to 'memory_audit_logs' atomically)
+    ↓
+Retrieval / Ranking (Retrieves scoped active candidates, calculating lexical matching & vector similarity)
+    ↓
+Context Composition (Formats context within a character budget limit, dropping overflow candidates)
+    ↓
+Chat Response
 ```
 
-### 2. Configure Environment
-```bash
-cp .env.example .env
-```
-Update active variables in your local `.env`. 
-
-#### Offline Local Development (Default)
-To run offline without database servers or API keys, make sure these parameters are set:
-```env
-DATABASE_TYPE=memory
-EMBEDDING_PROVIDER=fallback
-```
-
-#### Gemini Provider Configuration
-To run semantic search using Google Gemini, update these settings (credentials are resolved strictly in the backend, the frontend never accesses or exposes them):
-```env
-EMBEDDING_PROVIDER=gemini
-GEMINI_API_KEY=your_google_gemini_api_key_here
-```
-
-### 3. Run Database
-```bash
-docker compose up -d
-```
-
-### 4. Run Application
-```bash
-uvicorn services.api.app.main:app --host 127.0.0.1 --port 8000 --reload
-```
-
-### 5. Run Verification Suite
-```bash
-pytest -q
-```
+### Key Memory Concepts
+*   **Semantic Memory:** Declarative knowledge representing facts (e.g. resident locations, technology stack preferences).
+*   **Procedural Memory:** Instructions and style guides governing *how* actions should be performed (e.g. explanation style preferences).
+*   **Episodic Memory:** Contextual records capturing past interactions.
+*   **Candidate Memories:** Ephemeral memory structures proposed by extractors before passing validation.
+*   **Policy Decisions:** Decisions made by the policy broker (`SAVE`, `UPDATE_EXISTING`, `MERGE_WITH_EXISTING`, `BLOCK`, `REDACT`) to control state mutations.
+*   **Memory Persistence:** ACID-compliant database inserts and updates equipped with version control columns.
+*   **Retrieval:** Tenant/User scoped search returning up to 50 active candidates.
+*   **Ranking:** Multi-factor score mixing semantic similarity, keyword match overlap, raw importance, recency, extraction confidence, and reinforcement count.
+*   **Audit Events:** Immutable logs tracing memory actions (`create`, `update`, `delete`, `decay`, `compact`).
 
 ---
 
-## 13. Project Structure
+## Retrieval Strategy & Fallback Mechanics
+
+The system supports hybrid retrieval combining **vector search (pgvector)** and **lexical search (Jaccard token matching)**.
+
+```text
+Score = 0.35 * semantic + 0.20 * lexical + 0.15 * importance + 0.10 * recency + 0.10 * confidence + 0.10 * reinforcement
+```
+
+### Fallback/Lexical Retrieval
+If embedding provider API keys (OpenAI or Google Gemini) are not configured or become unavailable, the `RetrievalCoordinator` degrades gracefully to **lexical fallback mode**:
+*   The API returns `"retrieval_mode": "fallback"` and `"semantic_score": 0.0` for all candidates.
+*   The Jaccard matching coefficient matches tokenized unique query terms with normalized candidate content tokens.
+*   This ensures search capabilities remain online even during external API outages.
+
+---
+
+## Authentication & Authorization
+
+Authentication is based on JSON Web Tokens (JWT) using the symmetric HMAC-SHA256 signature algorithm.
+
+### Access Token Acquisition
+To obtain a bearer JWT, clients authenticate against:
+```http
+POST /api/auth/token
+Content-Type: application/json
+
+{
+  "username": "DEMO_AUTH_USERNAME",
+  "password": "DEMO_AUTH_PASSWORD"
+}
+```
+*Credentials are resolved strictly from environment variables on the backend and are never committed to source control.*
+
+The API response returns an `access_token` containing a payload specifying coordinate scopes:
+*   `tenant_id`: `"tenant_demo"`
+*   `user_id`: `"user_demo"`
+*   `scopes`: `["memory:read", "memory:write", "audit:read", "governance:admin"]`
+
+### Swagger Authorization Workflow
+1. Call `POST /api/auth/token` with configured demo credentials.
+2. Copy the `access_token` string from the JSON response.
+3. Click the green **Authorize** button at the top of the Swagger API Docs page.
+4. Input the token in the text box (Swagger uses standard Bearer Authentication context).
+5. Interact with protected routes securely.
+
+---
+
+## Multi-Tenancy & Database-Level RLS
+
+Memory records are tightly bound to a `tenant_id` and `user_id`.
+
+### Row-Level Security (RLS)
+PostgreSQL table schemas (`memories` and `idempotency_records`) enforce database-level isolation:
+*   Active database connection sessions execute in a context that assigns `app.current_tenant_id` and `app.current_user_id`.
+*   PostgreSQL Row-Level Security filters ensure database queries cannot return or modify records belonging to other tenants or users, preventing application bugs from leaking cross-tenant data.
+*   The application API route logic double-checks that the request coordinates match the JWT identity details (`HTTP 403 Forbidden` is raised on mismatches).
+
+---
+
+## Idempotency Mechanism
+
+To prevent duplicate requests (such as double-submitted writes from chat clients), MemoryOps AI features an idempotency middleware layer:
+
+*   **Header:** Clients supply a unique key in the `X-Idempotency-Key` header.
+*   **Database Record:** The `idempotency_records` table stores the request key, tenant, user, response status, and response body.
+*   **Behavior:**
+    *   If a request with an existing `(key, tenant_id, user_id)` is received, the API bypasses the execution pipeline and immediately returns the cached status code and response body.
+    *   If a request is currently processing, concurrent requests block on lock entries.
+    *   Idempotency records are scoped using the same RLS policies to maintain multi-tenant security boundaries.
+
+---
+
+## Auditability & Observability
+
+Audit logs and telemetry trace execution flows end-to-end:
+
+*   **Trace ID Propagation:** Client requests can supply an `X-Trace-ID` header. If absent, a unique UUID (`trace-{uuid}`) is generated. This trace identifier propagates through logs, database audit logs, and API responses.
+*   **Memory Audit Logs:** Inserted atomically within write/update database transactions into `memory_audit_logs` (tracking memory ID, event action, reason, metadata, and trace ID).
+*   **Retrieval Telemetry:** Emit events recording latency, candidate match counts, final scores, and active retrieval mode.
+
+---
+
+## Tech Stack
+
+*   **Backend Framework:** Python 3.11+, FastAPI (Pydantic settings/schemas, async context managers)
+*   **Database:** PostgreSQL 15+ equipped with the `pgvector` extension
+*   **Database Client:** `asyncpg` (Asynchronous connection pooling and query executions)
+*   **Frontend Dashboard:** Next.js (React 19, TypeScript, PostCSS/Tailwind CSS styling)
+*   **Containerization:** Docker (with `docker-compose` definition files)
+
+---
+
+## Project Structure
 
 ```text
 memoryops-ai/
 ├── Dockerfile                   # Multi-stage container build
-├── docker-compose.yml           # Database configuration
-├── requirements.txt             # Core dependencies
+├── docker-compose.yml           # Local PostgreSQL and database setup
+├── requirements.txt             # Application dependency manifest
+├── requirements-dev.txt         # Dev-specific dependencies (pytest, black, mypy)
 ├── services/
 │   └── api/
 │       └── app/
-│           ├── main.py          # FastAPI startup and setup
-│           ├── config.py        # Settings loader
+│           ├── main.py          # FastAPI application startup & routing
+│           ├── config.py        # Settings configuration class
 │           ├── runtime.py       # Dependency injection container
-│           ├── domain/          # Model structures
-│           ├── policy/          # Writes filter logic
-│           ├── repositories/    # Database repository adapters
-│           ├── routes/          # FastAPI routers
-│           └── services/        # Business pipeline logic
-├── sdk/                         # Client Python SDK
+│           ├── domain/          # Shared domain entities & enums
+│           ├── policy/          # Writes filter logic (Broker, regex filters)
+│           ├── repositories/    # Database repository adapters (PostgreSQL, InMemory)
+│           ├── routes/          # REST API endpoints (chat, governance, auth)
+│           └── services/        # Business pipeline logic (retrieval, write, lifecycle)
+├── sdk/                         # Client Python SDK (memoryops-sdk)
 ├── frontend/                    # Next.js Dashboard UI web application
-├── evals/                       # Quality evaluation suite
+├── evals/                       # Quality evaluation suite (golden cases, runner)
 └── tests/                       # Complete verification test suite
 ```
 
 ---
 
-## 14. Testing Suite
+## Getting Started
 
-The testing suite contains **283 tests** (282 passed, 1 skipped) verifying repository behaviors, RLS policies, security isolation, and SDK clients.
+### Prerequisites
+*   Python 3.11+
+*   Docker & Docker Compose (required for PostgreSQL tests and local runs)
 
-Run the test suite:
+### Environment Variables
+Create a local `.env` file by copying the template:
 ```bash
-# In-Memory
-DATABASE_TYPE=memory pytest -q
-
-# PostgreSQL
-DATABASE_TYPE=postgres pytest -q
+cp .env.example .env
 ```
 
+#### Running Offline (InMemory Default)
+To test locally without external database infrastructure or API keys:
+```env
+DATABASE_TYPE=memory
+EMBEDDING_PROVIDER=fallback
+```
+
+#### Running with Google Gemini
+To test semantic vector matching, update your `.env` with a Gemini API key:
+```env
+EMBEDDING_PROVIDER=gemini
+GEMINI_API_KEY=your_google_gemini_api_key
+```
+
+### Running the Backend
+1.  Initialize a virtual environment and install dependencies:
+    ```bash
+    python -m venv .venv
+    source .venv/bin/activate  # Windows: .venv\Scripts\activate
+    pip install -r requirements.txt -r requirements-dev.txt
+    ```
+2.  Start local database container:
+    ```bash
+    docker compose up -d
+    ```
+3.  Execute migrations:
+    ```bash
+    python infra/db/run_migrations.py
+    ```
+4.  Run the Uvicorn application:
+    ```bash
+    uvicorn services.api.app.main:app --host 127.0.0.1 --port 8000 --reload
+    ```
+
+### Running the Frontend
+1. Navigate to the frontend directory:
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+2. Open [http://localhost:3000](http://localhost:3000) to view the dashboard interface.
+
 ---
 
-## 15. Design Decisions (ADRs)
+## API Reference
 
-Key architectural decisions are documented in `infra/adr/`:
+### Core Endpoints
 
-*   **ADR-001: Storage Selection** — Selects PostgreSQL with `pgvector` as the system of record.
-*   **ADR-002: Hybrid Retrieval and Deterministic Ranking** — Blends vector similarity and lexical matching using deterministic ranking formulas.
-*   **ADR-003: Policy Broker before Storage** — Restricts writes until they pass Policy Broker safety filters.
-*   **ADR-005: Deletion Guarantee** — Ensures soft deletion is terminal and followed by background vector compaction.
+#### `POST /api/auth/token`
+*   **Description:** Authenticates user credentials and issues a JWT token.
+*   **Auth Required:** No
+*   **Request Body:** `username`, `password` (loaded from env variables).
+*   **Response:** `access_token`, `token_type` (bearer), `expires_in` (seconds).
+
+#### `POST /api/chat`
+*   **Description:** Primary interface processing chat loops, context retrievals, and memory updates.
+*   **Auth Required:** Yes (`memory:write` scope)
+*   **Headers:** Optional `X-Idempotency-Key` and `X-Trace-ID`
+*   **Request Body:** `tenant_id`, `user_id`, `message` (triggers extraction if starts with "remember that "), `temporary_chat` (boolean, bypasses write persistence if true), `conversation_id`.
+*   **Response:** `assistant_message`, `used_memories` (list of matching memories with breakdown), `candidate_memories` (newly extracted and processed memories), `audit_event_ids`, `temporary_chat`, `retrieval_mode`, `trace_id`.
+
+#### `GET /healthz`
+*   **Description:** General service status, uptime indicator, and project version.
+*   **Auth Required:** No
+
+#### `GET /readyz`
+*   **Description:** Validates service readiness (verifies DB status and Gemini/embedding credentials).
+*   **Auth Required:** No
+
+### Governance Endpoints (Require Auth Coordinate checks)
+
+*   `GET /api/memories` — Lists memory records. Requires scope `memory:read`.
+*   `GET /api/memories/{memory_id}` — Gets a single memory record. Requires scope `memory:read`.
+*   `PATCH /api/memories/{memory_id}` — Mutates specific columns (importance, confidence, status, content). Requires scope `memory:write`. Supports `X-Idempotency-Key`.
+*   `DELETE /api/memories/{memory_id}` — Deletes a record physically from index and compacts content. Requires scope `governance:admin`. Supports `X-Idempotency-Key`.
+*   `GET /api/memories/{memory_id}/provenance` — Retrieves memory source kind and conversational origin excerpt. Requires scope `memory:read`.
+*   `GET /api/memories/{memory_id}/evidence` — Packages record details and full transaction audit log trail. Requires scope `audit:read`.
+*   `GET /api/memories/{memory_id}/audit` — Returns list of audit events matching memory ID. Requires scope `audit:read`.
+*   `GET /api/audit` — Queries audit event lists. Requires scope `audit:read`.
+*   `GET /api/metrics` — Gets metrics summaries (active memory distributions, error rate counts). Requires scope `governance:admin`.
 
 ---
 
-## 16. Limitations
+## Testing & Verification
 
-*   **Mock Inference Default:** Local testing uses lexical mocks. Validating LLM behavior requires live OpenAI/Gemini API keys.
-*   **Optimistic Concurrency Constraints:** High-contention slots can trigger transaction retry loops.
-*   **Lexical Matching Scope:** Jaccard calculations split raw characters, lacking stemming or complex stopword filtering.
+MemoryOps AI incorporates a robust verification suite containing **283 tests** (verifying connection pools, transactional rollbacks, token scopes, RLS policies, Jaccard scores, and background workers).
+
+### Running Tests
+
+#### Offline (InMemory Mode)
+```bash
+cmd /c "set DATABASE_TYPE=memory && pytest -q"
+```
+*(All 253 in-memory and unit tests pass cleanly in offline mode).*
+
+#### Database Integration (PostgreSQL Mode)
+```bash
+cmd /c "set DATABASE_TYPE=postgres && pytest -q"
+```
+*(Requires a running PostgreSQL instance on port 5433).*
 
 ---
 
-## 17. Roadmap
+## Production Verification
 
-*   **Phase 1 (Completed):** Governed write path, Policy Broker, and transaction block management.
-*   **Phase 2 (Completed):** Retrieval spine, Jaccard lexical math, and deterministic ranking.
-*   **Phase 3 (Completed):** PostgreSQL + pgvector persistence, migration framework, and RLS.
+The deployed system (`https://memoryops-ai-production-47ac.up.railway.app`) has been verified to ensure stability under load:
+1.  **Authentication is Functional:** Validates credentials and returns JWT bearer tokens.
+2.  **API Chat End-to-End:** Processes read/write queries successfully.
+3.  **Memory Extraction & Policy Control:** Content matching credentials (like API keys or passwords) is successfully blocked; valid statements are written to database.
+4.  **Database Persistence:** Atomically records memories, audit entries, and version counters in PostgreSQL.
+5.  **Idempotency & Locks:** Confirmed that duplicate requests receive cached responses.
+6.  **Deterministic Retrieval Ranking:** Queries retrieve exact memory matches and assign them to Rank #1.
+7.  **RLS Enforcement:** Rejects cross-tenant access attempts with explicit coordinate authorization checks.
+
+---
+
+## Current Limitations
+
+For production deployments, note the following limitations:
+
+*   **Mocked LLM Response Text:** The `/api/chat` endpoint is a control-plane runtime. The actual chatbot conversational text response is mocked, focusing instead on returning structured context arrays (`used_memories` and `candidate_memories`).
+*   **Offline Fallback Mode:** In the default production environment where embedding keys are not provided, vector cosine distance results default to fallback mode (`semantic_score` of 0). The system falls back on lexical term-matching.
+*   **Optimistic Concurrency Control (OCC):** Concurrent update requests on high-contention memory records can cause transaction rollbacks. Mismatches must be queued or retried at the client/SDK layer.
+*   **Lexical Matching Scope:** Lexical keyword Jaccard scoring splits tokens on simple string tokenization, lacking advanced English stemming or stopword filtration libraries.
+
+---
+
+## Roadmap
+
+*   **Phase 1 (Completed):** Governed write path, Policy Broker validation, and transaction blocks.
+*   **Phase 2 (Completed):** Retrieval spine, Jaccard lexical logic, and deterministic ranking formulas.
+*   **Phase 3 (Completed):** PostgreSQL + pgvector persistence, migrations, and Row-Level Security.
 *   **Phase 4 (Completed):** Background workers (Retention, Decay, Reflection, Compaction).
-*   **Phase 5 (Completed):** Model-agnostic embedding factory.
+*   **Phase 5 (Completed):** Model-agnostic embedding provider factory (OpenAI, Gemini, Fallback).
 *   **Phase 6 (Future):** Tamper-evident audit trail hashing.
+
+---
+
+## Design Decisions (ADRs)
+
+Key architectural choices are documented under [infra/adr/](infra/adr/):
+
+*   [ADR-001: Storage Selection](infra/adr/ADR-001-storage.md) — Chooses PostgreSQL with `pgvector` as the system of record.
+*   [ADR-002: Hybrid Retrieval and Deterministic Ranking](infra/adr/ADR-002-retrieval.md) — Blends vector search with token Jaccard matching.
+*   [ADR-003: Policy Broker before Storage](infra/adr/ADR-003-policy-broker.md) — Controls write mutations with upfront policies.
+*   [ADR-004: Context Propagation and Observability](infra/adr/ADR-004-observability.md) — Defines trace ID decorators and observability hooks.
+*   [ADR-005: Deletion Guarantee](infra/adr/ADR-005-deletion-guarantee.md) — Configures hard compaction steps following logical deletions.
+*   [ADR-006: Memory Identity and Write-Path Mutation](infra/adr/ADR-006-memory-identity-and-write-path-mutation.md) — Solves conflicts using unique identity slots.
+*   [ADR-007: Embedding Provider and Model](infra/adr/ADR-007-embedding-provider-and-model.md) — Selects Gemini and OpenAI embedding details.
+*   [ADR-008: Provider-Agnostic Embedding Architecture](infra/adr/ADR-008-provider-agnostic-embedding-architecture.md) — Introduces the runtime embedding factory adapter.
+
+---
+
+## License
+
+MemoryOps AI is open-source software licensed under the [MIT License](LICENSE).
